@@ -5,7 +5,7 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  // directUrl = env("DIRECT_URL") // Temporarily disabled - Supabase direct connection not accessible
 }
 
 model Invoice {
@@ -31,4 +31,14 @@ model Transaksi {
   createdAt DateTime @default(now())
   invoiceId Int?
   invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id             Int       @id @default(autoincrement())
+  username       String    @unique
+  password       String    // bcrypt hashed
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 }
