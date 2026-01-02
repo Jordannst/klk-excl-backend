@@ -12,6 +12,11 @@ import { apiRateLimiter } from './middleware/rateLimit';
 
 const app = express();
 
+// Trust proxy for Railway/Vercel (required for rate limiting and secure cookies)
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
