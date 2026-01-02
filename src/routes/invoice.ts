@@ -3,10 +3,58 @@ import { prisma } from '../lib/prisma';
 
 const router = Router();
 
-// GET /api/invoice - List all invoices (newest first)
-router.get('/', async (_req: Request, res: Response) => {
+// GET /api/invoice - List all invoices (newest first) with pagination, search, and date filter
+router.get('/', async (req: Request, res: Response) => {
   try {
+    // Parse pagination params
+    const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string, 10) || 10));
+    const skip = (page - 1) * limit;
+
+    // Parse search param
+    const search = (req.query.search as string) || '';
+
+    // Parse date filter params
+    const startDate = req.query.startDate as string;
+    const endDate = req.query.endDate as string;
+
+    // Build where clause
+    interface WhereClause {
+      title?: { contains: string; mode: 'insensitive' };
+      createdAt?: { gte?: Date; lte?: Date };
+    }
+    const where: WhereClause = {};
+
+    // Add search filter
+    if (search.trim()) {
+      where.title = {
+        contains: search.trim(),
+        mode: 'insensitive',
+      };
+    }
+
+    // Add date range filter
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) {
+        where.createdAt.gte = new Date(startDate);
+      }
+      if (endDate) {
+        // Set to end of day
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    // Get total count with filters
+    const total = await prisma.invoice.count({ where });
+
+    // Get paginated invoices with filters
     const invoices = await prisma.invoice.findMany({
+      where,
+      skip,
+      take: limit,
       orderBy: {
         createdAt: 'desc',
       },
@@ -18,7 +66,7 @@ router.get('/', async (_req: Request, res: Response) => {
     });
 
     // Map to include count properly
-    const result = invoices.map((inv) => ({
+    const data = invoices.map((inv) => ({
       id: inv.id,
       title: inv.title,
       createdAt: inv.createdAt,
@@ -26,7 +74,16 @@ router.get('/', async (_req: Request, res: Response) => {
       count: inv._count.transactions,
     }));
 
-    res.json(result);
+    // Return paginated response
+    res.json({
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
     console.error('Error fetching invoices:', error);
     res.status(500).json({ error: 'Failed to fetch invoices' });
