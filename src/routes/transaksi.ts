@@ -50,7 +50,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/transaksi - Save new transaction data
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { tanggal, pengirim, penerima, coly, berat, min, tarif, total, noResi, invoiceId } = req.body;
+    const { tanggal, pengirim, penerima, coly, berat, min, tarif, total, noResi, keterangan, invoiceId } = req.body;
 
     // Validate noResi is present
     if (!noResi || typeof noResi !== 'string' || noResi.trim() === '') {
@@ -75,6 +75,7 @@ router.post('/', async (req: Request, res: Response) => {
         tarif: Number(tarif) || 0,
         total: Number(total),
         noResi: noResi.trim(),
+        keterangan: keterangan || null,
         invoiceId: invoiceId ? Number(invoiceId) : null,
       },
     });
@@ -114,7 +115,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    const { tanggal, pengirim, penerima, coly, berat, min, tarif, total, noResi } = req.body;
+    const { tanggal, pengirim, penerima, coly, berat, min, tarif, total, noResi, keterangan } = req.body;
 
     // Build update data with only provided fields
     const updateData: Prisma.TransaksiUpdateInput = {};
@@ -128,6 +129,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     if (tarif !== undefined) updateData.tarif = Number(tarif);
     if (total !== undefined) updateData.total = Number(total);
     if (noResi !== undefined) updateData.noResi = noResi.trim();
+    if (keterangan !== undefined) updateData.keterangan = keterangan || null;
 
     const updatedTransaksi = await prisma.transaksi.update({
       where: { id: transaksiId },

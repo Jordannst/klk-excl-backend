@@ -200,6 +200,7 @@ router.post('/', async (req: Request, res: Response) => {
             tarif: number;
             total: number;
             noResi: string;
+            keterangan?: string;
           }) => ({
             tanggal: new Date(t.tanggal),
             pengirim: t.pengirim,
@@ -210,6 +211,7 @@ router.post('/', async (req: Request, res: Response) => {
             tarif: Number(t.tarif) || 0,
             total: Number(t.total),
             noResi: t.noResi.trim(),
+            keterangan: t.keterangan || null,
           })),
         },
       },
