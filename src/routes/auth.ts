@@ -136,8 +136,15 @@ router.post('/login', loginRateLimiter, async (req: Request, res: Response) => {
  * Clear tokens and logout
  */
 router.post('/logout', (_req: Request, res: Response) => {
-  res.clearCookie('accessToken');
-  res.clearCookie('refreshToken');
+  // Must use the same options as when setting cookies for proper clearing
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const,
+  };
+  
+  res.clearCookie('accessToken', cookieOptions);
+  res.clearCookie('refreshToken', cookieOptions);
   res.json({ message: 'Logout successful' });
 });
 
