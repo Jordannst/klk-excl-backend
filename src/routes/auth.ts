@@ -101,17 +101,17 @@ router.post('/login', loginRateLimiter, async (req: Request, res: Response) => {
     const accessToken = generateAccessToken(tokenPayload);
     const refreshToken = generateRefreshToken(tokenPayload);
 
-    // Set refresh token as HttpOnly cookie
+    // Set refresh token as HttpOnly cookie (3 days for security)
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 3 * 24 * 60 * 60 * 1000, // 3 days
     });
 
-    // Set access token as regular cookie (accessible by JS for header)
+    // Set access token as HttpOnly cookie (XSS protection)
     res.cookie('accessToken', accessToken, {
-      httpOnly: false,
+      httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 2 * 60 * 60 * 1000, // 2 hours
@@ -174,20 +174,29 @@ router.post('/refresh', async (req: Request, res: Response) => {
       return;
     }
 
-    // Generate new access token
+    // Generate new tokens (refresh token rotation for security)
     const tokenPayload: TokenPayload = {
       userId: user.id,
       username: user.username,
     };
 
     const newAccessToken = generateAccessToken(tokenPayload);
+    const newRefreshToken = generateRefreshToken(tokenPayload);
 
-    // Set new access token cookie
+    // Set new access token cookie (HttpOnly for XSS protection)
     res.cookie('accessToken', newAccessToken, {
-      httpOnly: false,
+      httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 2 * 60 * 60 * 1000, // 2 hours
+    });
+
+    // Rotate refresh token (invalidates old token)
+    res.cookie('refreshToken', newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 3 * 24 * 60 * 60 * 1000, // 3 days
     });
 
     res.json({

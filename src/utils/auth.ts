@@ -2,11 +2,18 @@ import bcrypt from 'bcrypt';
 import jwt, { SignOptions } from 'jsonwebtoken';
 
 const SALT_ROUNDS = 10;
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-in-production';
+
+// JWT Secret validation - fail fast if not configured
+const envJwtSecret = process.env.JWT_SECRET;
+if (!envJwtSecret) {
+  throw new Error('FATAL: JWT_SECRET environment variable is required. Please set it in your .env file.');
+}
+const JWT_SECRET: string = envJwtSecret;
+
 // 2 hours in seconds
 const JWT_EXPIRES_IN_SECONDS = 2 * 60 * 60;
-// 7 days in seconds
-const JWT_REFRESH_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60;
+// 3 days in seconds (reduced from 7 days for security)
+const JWT_REFRESH_EXPIRES_IN_SECONDS = 3 * 24 * 60 * 60;
 
 export interface TokenPayload {
   userId: number;
