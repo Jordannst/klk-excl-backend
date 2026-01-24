@@ -21,8 +21,22 @@ router.get('/', async (_req: Request, res: Response) => {
     const dbSizeBytes = Number(dbSizeResult[0]?.size || 0);
     const dbSizeMB = dbSizeBytes / (1024 * 1024);
     
-    // Get invoice count
-    const invoiceCount = await prisma.invoice.count();
+    // Get counts
+    const [invoiceCount, transactionCount, signatureCount] = await Promise.all([
+      prisma.invoice.count({ where: { deletedAt: null } }), // Only active invoices
+      prisma.transaksi.count(),
+      prisma.signature.count(),
+    ]);
+
+    // Estimate signature storage (base64 images are typically 1.33x larger than binary)
+    // Average signature PNG is around 5-15KB, base64 adds ~33% overhead
+    const signatures = await prisma.signature.findMany({
+      select: { imageData: true },
+    });
+    const signatureStorageBytes = signatures.reduce((sum, sig) => {
+      return sum + (sig.imageData?.length || 0);
+    }, 0);
+    const signatureStorageKB = signatureStorageBytes / 1024;
     
     // Storage limit (Supabase free tier)
     const storageLimitMB = 500;
@@ -37,6 +51,11 @@ router.get('/', async (_req: Request, res: Response) => {
       },
       counts: {
         invoices: invoiceCount,
+        transactions: transactionCount,
+        signatures: signatureCount,
+      },
+      storage: {
+        signatureKB: Math.round(signatureStorageKB * 100) / 100,
       },
       updatedAt: new Date().toISOString(),
     });
@@ -47,3 +66,4 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 export default router;
+
