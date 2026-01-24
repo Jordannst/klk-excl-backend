@@ -43,3 +43,12 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 }
+
+// Digital signature storage for invoice documents
+model Signature {
+  id        String   @id @default(cuid())
+  label     String   // Name of the signer (e.g., "Pak Jordan", "Bu Janti")
+  imageData String   @db.Text // Base64 encoded PNG with transparent background
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

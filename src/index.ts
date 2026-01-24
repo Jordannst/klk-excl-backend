@@ -7,6 +7,7 @@ import transaksiRoutes from './routes/transaksi';
 import invoiceRoutes from './routes/invoice';
 import authRoutes from './routes/auth';
 import statsRoutes from './routes/stats';
+import signatureRoutes from './routes/signature';
 import { authMiddleware } from './middleware/auth.middleware';
 import { apiRateLimiter } from './middleware/rateLimit';
 
@@ -42,6 +43,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/transaksi', authMiddleware, transaksiRoutes);
 app.use('/api/invoice', authMiddleware, invoiceRoutes);
 app.use('/api/stats', authMiddleware, statsRoutes);
+app.use('/api/signature', authMiddleware, signatureRoutes);
 
 // Start server
 app.listen(config.port, async () => {
