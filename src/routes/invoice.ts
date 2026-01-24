@@ -22,8 +22,11 @@ router.get('/', async (req: Request, res: Response) => {
     interface WhereClause {
       title?: { contains: string; mode: 'insensitive' };
       createdAt?: { gte?: Date; lte?: Date };
+      deletedAt?: null | { not: null };
     }
-    const where: WhereClause = {};
+    const where: WhereClause = {
+      deletedAt: null, // Only show active invoices (not soft-deleted)
+    };
 
     // Add search filter
     if (search.trim()) {
@@ -110,7 +113,8 @@ router.get('/:id', async (req: Request, res: Response) => {
       },
     });
 
-    if (!invoice) {
+    // Check if invoice exists and is not soft-deleted
+    if (!invoice || invoice.deletedAt !== null) {
       res.status(404).json({ error: 'Invoice not found' });
       return;
     }
@@ -273,7 +277,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /api/invoice/:id - Delete invoice and all its transactions
+// DELETE /api/invoice/:id - Soft delete invoice (move to trash)
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -284,7 +288,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Check if invoice exists
+    // Check if invoice exists and is not already deleted
     const existing = await prisma.invoice.findUnique({
       where: { id: invoiceId },
     });
@@ -294,17 +298,136 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Delete invoice (cascade will delete transactions)
-    await prisma.invoice.delete({
+    if (existing.deletedAt !== null) {
+      res.status(400).json({ error: 'Invoice is already in trash' });
+      return;
+    }
+
+    // Soft delete: set deletedAt timestamp
+    await prisma.invoice.update({
       where: { id: invoiceId },
+      data: { deletedAt: new Date() },
     });
 
-    res.json({ message: 'Invoice deleted successfully' });
+    res.json({ message: 'Invoice moved to trash successfully' });
   } catch (error) {
-    console.error('Error deleting invoice:', error);
+    console.error('Error soft deleting invoice:', error);
     res.status(500).json({ error: 'Failed to delete invoice' });
   }
 });
 
-export default router;
+// =============================================================================
+// TRASH ENDPOINTS
+// =============================================================================
 
+// GET /api/invoice/trash - Get all soft-deleted invoices
+router.get('/trash/list', async (req: Request, res: Response) => {
+  try {
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        deletedAt: { not: null },
+      },
+      orderBy: {
+        deletedAt: 'desc', // Most recently deleted first
+      },
+      include: {
+        _count: {
+          select: { transactions: true },
+        },
+      },
+    });
+
+    const data = invoices.map((inv) => ({
+      id: inv.id,
+      title: inv.title,
+      createdAt: inv.createdAt,
+      deletedAt: inv.deletedAt,
+      total: inv.total,
+      count: inv._count.transactions,
+    }));
+
+    res.json({ data });
+  } catch (error) {
+    console.error('Error fetching trash:', error);
+    res.status(500).json({ error: 'Failed to fetch trash' });
+  }
+});
+
+// POST /api/invoice/:id/restore - Restore invoice from trash
+router.post('/:id/restore', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const invoiceId = parseInt(id, 10);
+
+    if (isNaN(invoiceId)) {
+      res.status(400).json({ error: 'Invalid invoice ID' });
+      return;
+    }
+
+    // Check if invoice exists and is soft-deleted
+    const existing = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return;
+    }
+
+    if (existing.deletedAt === null) {
+      res.status(400).json({ error: 'Invoice is not in trash' });
+      return;
+    }
+
+    // Restore: clear deletedAt
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { deletedAt: null },
+    });
+
+    res.json({ message: 'Invoice restored successfully' });
+  } catch (error) {
+    console.error('Error restoring invoice:', error);
+    res.status(500).json({ error: 'Failed to restore invoice' });
+  }
+});
+
+// DELETE /api/invoice/:id/permanent - Permanently delete invoice from trash
+router.delete('/:id/permanent', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const invoiceId = parseInt(id, 10);
+
+    if (isNaN(invoiceId)) {
+      res.status(400).json({ error: 'Invalid invoice ID' });
+      return;
+    }
+
+    // Check if invoice exists and is soft-deleted
+    const existing = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+
+    if (!existing) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return;
+    }
+
+    if (existing.deletedAt === null) {
+      res.status(400).json({ error: 'Invoice must be in trash before permanent deletion. Move to trash first.' });
+      return;
+    }
+
+    // Permanent delete (cascade will delete transactions)
+    await prisma.invoice.delete({
+      where: { id: invoiceId },
+    });
+
+    res.json({ message: 'Invoice permanently deleted' });
+  } catch (error) {
+    console.error('Error permanently deleting invoice:', error);
+    res.status(500).json({ error: 'Failed to permanently delete invoice' });
+  }
+});
+
+export default router;

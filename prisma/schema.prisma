@@ -12,6 +12,7 @@ model Invoice {
   id           Int         @id @default(autoincrement())
   title        String
   createdAt    DateTime    @default(now())
+  deletedAt    DateTime?   // NULL = active, timestamp = soft deleted (in trash)
   total        Int         @default(0)
   count        Int         @default(0)
   transactions Transaksi[]
