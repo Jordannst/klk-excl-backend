@@ -28,15 +28,15 @@
     "jsonwebtoken": "^9.0.3",
     "postgres": "^3.4.7",
     "prisma": "^5.22.0",
-    "typescript": "^5.9.3"
-  },
-  "devDependencies": {
+    "typescript": "^5.9.3",
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^25.0.0",
+    "@types/node": "^25.0.0"
+  },
+  "devDependencies": {
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2"
   }
