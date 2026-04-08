@@ -41,3 +41,6 @@ temp/
 # TypeScript cache
 *.tsbuildinfo
 
+# local worktrees
+.worktrees/
+
