@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { Prisma, InvoiceDateMode as PrismaInvoiceDateMode } from '@prisma/client';
 import { Router, Request, Response } from 'express';
 import {
   fromPrismaInvoiceDateMode,
@@ -68,6 +68,70 @@ function parseMinValue(value: unknown): number {
   }
 
   return parseRequiredPositiveInt(value, 'min');
+}
+
+function parseOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== 'boolean') {
+    throw new Error(`${fieldName} must be a boolean`);
+  }
+
+  return value;
+}
+
+function parseBooleanWithDefault(value: unknown, fieldName: string, defaultValue: boolean): boolean {
+  const parsed = parseOptionalBoolean(value, fieldName);
+  return parsed ?? defaultValue;
+}
+
+function toInvoiceResponse(invoice: {
+  id: number;
+  title: string;
+  createdAt: Date;
+  total: number;
+  dateMode: PrismaInvoiceDateMode;
+  showKeteranganColumn: boolean;
+  transactions: Array<unknown>;
+}) {
+  return {
+    id: invoice.id,
+    title: invoice.title,
+    createdAt: invoice.createdAt,
+    total: invoice.total,
+    count: invoice.transactions.length,
+    dateMode: fromPrismaInvoiceDateMode(invoice.dateMode),
+    showKeteranganColumn: invoice.showKeteranganColumn,
+    transactions: invoice.transactions,
+  };
+}
+
+function toInvoiceListResponse(invoice: {
+  id: number;
+  title: string;
+  createdAt: Date;
+  total: number;
+  _count: { transactions: number };
+  showKeteranganColumn: boolean;
+}) {
+  return {
+    id: invoice.id,
+    title: invoice.title,
+    createdAt: invoice.createdAt,
+    total: invoice.total,
+    count: invoice._count.transactions,
+    showKeteranganColumn: invoice.showKeteranganColumn,
+  };
+}
+
+function hasKeteranganColumnField(value: unknown): value is { showKeteranganColumn?: unknown } {
+  return typeof value === 'object' && value !== null && 'showKeteranganColumn' in value;
+}
+
+function hasDateModeField(value: unknown): value is { dateMode?: unknown } {
+  return typeof value === 'object' && value !== null && 'dateMode' in value;
 }
 
 // GET /api/invoice - List all invoices (newest first) with pagination, search, and date filter
@@ -140,13 +204,7 @@ router.get('/', async (req: Request, res: Response) => {
     });
 
     // Map to include count properly
-    const data = invoices.map((inv) => ({
-      id: inv.id,
-      title: inv.title,
-      createdAt: inv.createdAt,
-      total: inv.total,
-      count: inv._count.transactions,
-    }));
+    const data = invoices.map((inv) => toInvoiceListResponse(inv));
 
     // Return paginated response
     res.json({
@@ -190,15 +248,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    res.json({
-      id: invoice.id,
-      title: invoice.title,
-      createdAt: invoice.createdAt,
-      total: invoice.total,
-      count: invoice.transactions.length,
-      dateMode: fromPrismaInvoiceDateMode(invoice.dateMode),
-      transactions: invoice.transactions,
-    });
+    res.json(toInvoiceResponse(invoice));
   } catch (error) {
     console.error('Error fetching invoice:', error);
     res.status(500).json({ error: 'Failed to fetch invoice' });
@@ -209,6 +259,14 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { title, transactions } = req.body;
+
+    let showKeteranganColumn: boolean;
+    try {
+      showKeteranganColumn = parseBooleanWithDefault(req.body.showKeteranganColumn, 'showKeteranganColumn', true);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid showKeteranganColumn value' });
+      return;
+    }
 
     // Validate title
     if (!title || typeof title !== 'string' || title.trim() === '') {
@@ -341,6 +399,7 @@ router.post('/', async (req: Request, res: Response) => {
         total: totalAmount,
         count: parsedTransactions.length,
         dateMode: toPrismaInvoiceDateMode(dateMode),
+        showKeteranganColumn,
         transactions: {
           create: parsedTransactions,
         },
@@ -350,15 +409,7 @@ router.post('/', async (req: Request, res: Response) => {
       },
     });
 
-    res.status(201).json({
-      id: invoice.id,
-      title: invoice.title,
-      createdAt: invoice.createdAt,
-      total: invoice.total,
-      count: invoice.transactions.length,
-      dateMode: fromPrismaInvoiceDateMode(invoice.dateMode),
-      transactions: invoice.transactions,
-    });
+    res.status(201).json(toInvoiceResponse(invoice));
   } catch (error) {
     console.error('Error creating invoice:', error);
     res.status(500).json({ error: 'Failed to create invoice' });
@@ -377,7 +428,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    if (title === undefined && req.body.dateMode === undefined) {
+    if (title === undefined && !hasDateModeField(req.body) && !hasKeteranganColumnField(req.body)) {
       res.status(400).json({ error: 'At least one updatable field is required' });
       return;
     }
@@ -407,7 +458,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       updateData.title = title.trim();
     }
 
-    if (req.body.dateMode !== undefined) {
+    if (hasDateModeField(req.body)) {
       let normalizedDateMode: ReturnType<typeof normalizeInvoiceDateMode>;
       try {
         normalizedDateMode = normalizeInvoiceDateMode(req.body.dateMode);
@@ -429,6 +480,20 @@ router.put('/:id', async (req: Request, res: Response) => {
       updateData.dateMode = toPrismaInvoiceDateMode(normalizedDateMode);
     }
 
+    if (hasKeteranganColumnField(req.body)) {
+      let normalizedShowKeteranganColumn: boolean | undefined;
+      try {
+        normalizedShowKeteranganColumn = parseOptionalBoolean(req.body.showKeteranganColumn, 'showKeteranganColumn');
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid showKeteranganColumn value' });
+        return;
+      }
+
+      if (normalizedShowKeteranganColumn !== undefined) {
+        updateData.showKeteranganColumn = normalizedShowKeteranganColumn;
+      }
+    }
+
     const invoice = await prisma.invoice.update({
       where: { id: invoiceId },
       data: updateData,
@@ -437,15 +502,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       },
     });
 
-    res.json({
-      id: invoice.id,
-      title: invoice.title,
-      createdAt: invoice.createdAt,
-      total: invoice.total,
-      count: invoice.transactions.length,
-      dateMode: fromPrismaInvoiceDateMode(invoice.dateMode),
-      transactions: invoice.transactions,
-    });
+    res.json(toInvoiceResponse(invoice));
   } catch (error) {
     console.error('Error updating invoice:', error);
     res.status(500).json({ error: 'Failed to update invoice' });
