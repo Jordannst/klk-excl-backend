@@ -15,14 +15,15 @@ enum InvoiceDateMode {
 }
 
 model Invoice {
-  id           Int             @id @default(autoincrement())
-  title        String
-  createdAt    DateTime        @default(now())
-  deletedAt    DateTime?       // NULL = active, timestamp = soft deleted (in trash)
-  total        Int             @default(0)
-  count        Int             @default(0)
-  dateMode     InvoiceDateMode @default(enabled)
-  transactions Transaksi[]
+  id                  Int             @id @default(autoincrement())
+  title               String
+  createdAt           DateTime        @default(now())
+  deletedAt           DateTime?       // NULL = active, timestamp = soft deleted (in trash)
+  total               Int             @default(0)
+  count               Int             @default(0)
+  dateMode            InvoiceDateMode @default(enabled)
+  showKeteranganColumn Boolean        @default(true)
+  transactions        Transaksi[]
 }
 
 model Transaksi {
