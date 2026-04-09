@@ -64,7 +64,7 @@ function isNonEmptyString(value: unknown): value is string {
 
 function parseMinValue(value: unknown): number {
   if (value === undefined || value === null || value === '') {
-    return 10;
+    return 0;
   }
 
   return parseRequiredPositiveInt(value, 'min');
