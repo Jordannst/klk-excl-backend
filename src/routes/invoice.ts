@@ -1,7 +1,74 @@
+import { Prisma } from '@prisma/client';
 import { Router, Request, Response } from 'express';
+import {
+  fromPrismaInvoiceDateMode,
+  normalizeInvoiceDateMode,
+  normalizeTransactionDate,
+  toPrismaInvoiceDateMode,
+} from '../lib/invoice-date-mode';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
+
+function parseRequiredInt(value: unknown, fieldName: string): number {
+  if (value === null || value === undefined) {
+    throw new Error(`${fieldName} must be a valid integer`);
+  }
+
+  if (typeof value === 'string' && value.trim() === '') {
+    throw new Error(`${fieldName} must be a valid integer`);
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`${fieldName} must be a valid integer`);
+  }
+
+  return parsed;
+}
+
+function parseRequiredNonNegativeInt(value: unknown, fieldName: string): number {
+  const parsed = parseRequiredInt(value, fieldName);
+
+  if (parsed < 0) {
+    throw new Error(`${fieldName} must be greater than or equal to 0`);
+  }
+
+  return parsed;
+}
+
+function parseRequiredPositiveInt(value: unknown, fieldName: string): number {
+  const parsed = parseRequiredInt(value, fieldName);
+
+  if (parsed <= 0) {
+    throw new Error(`${fieldName} must be greater than 0`);
+  }
+
+  return parsed;
+}
+
+function parseDateQueryParam(value: string, fieldName: string): Date {
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`${fieldName} must be a valid date`);
+  }
+
+  return parsed;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function parseMinValue(value: unknown): number {
+  if (value === undefined || value === null || value === '') {
+    return 10;
+  }
+
+  return parseRequiredPositiveInt(value, 'min');
+}
 
 // GET /api/invoice - List all invoices (newest first) with pagination, search, and date filter
 router.get('/', async (req: Request, res: Response) => {
@@ -39,14 +106,18 @@ router.get('/', async (req: Request, res: Response) => {
     // Add date range filter
     if (startDate || endDate) {
       where.createdAt = {};
-      if (startDate) {
-        where.createdAt.gte = new Date(startDate);
-      }
-      if (endDate) {
-        // Set to end of day
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        where.createdAt.lte = end;
+      try {
+        if (startDate) {
+          where.createdAt.gte = parseDateQueryParam(startDate, 'startDate');
+        }
+        if (endDate) {
+          const end = parseDateQueryParam(endDate, 'endDate');
+          end.setHours(23, 59, 59, 999);
+          where.createdAt.lte = end;
+        }
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid date filter' });
+        return;
       }
     }
 
@@ -125,6 +196,7 @@ router.get('/:id', async (req: Request, res: Response) => {
       createdAt: invoice.createdAt,
       total: invoice.total,
       count: invoice.transactions.length,
+      dateMode: fromPrismaInvoiceDateMode(invoice.dateMode),
       transactions: invoice.transactions,
     });
   } catch (error) {
@@ -144,26 +216,101 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    let dateMode: ReturnType<typeof normalizeInvoiceDateMode>;
+    try {
+      dateMode = normalizeInvoiceDateMode(req.body.dateMode);
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid invoice date mode' });
+      return;
+    }
+
     // Validate transactions array
     if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
       res.status(400).json({ error: 'At least one transaction is required' });
       return;
     }
 
+    type InvoiceTransactionInput = {
+      tanggal?: string | null;
+      pengirim: string;
+      penerima: string;
+      coly: number;
+      berat: number;
+      min: number;
+      tarif: number;
+      total: number;
+      noResi: string;
+      keterangan?: string | null;
+    };
+
+    const parsedTransactions: Array<{
+      tanggal: Date | null;
+      pengirim: string;
+      penerima: string;
+      coly: number;
+      berat: number;
+      min: number;
+      tarif: number;
+      total: number;
+      noResi: string;
+      keterangan: string | null;
+    }> = [];
+
     // Validate each transaction
-    for (const t of transactions) {
-      if (!t.noResi || typeof t.noResi !== 'string' || t.noResi.trim() === '') {
+    for (const transaction of transactions as InvoiceTransactionInput[]) {
+      if (!transaction.noResi || typeof transaction.noResi !== 'string' || transaction.noResi.trim() === '') {
         res.status(400).json({ error: 'Each transaction must have a valid noResi' });
         return;
       }
-      if (!t.tanggal || !t.pengirim || !t.penerima) {
-        res.status(400).json({ error: 'Missing required fields: tanggal, pengirim, penerima' });
+
+      if (!isNonEmptyString(transaction.pengirim) || !isNonEmptyString(transaction.penerima)) {
+        res.status(400).json({ error: 'Missing required fields: pengirim, penerima' });
         return;
       }
+
+      let normalizedTanggal: Date | null;
+      try {
+        normalizedTanggal = normalizeTransactionDate(transaction.tanggal, dateMode);
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid tanggal value' });
+        return;
+      }
+
+      let parsedColy: number;
+      let parsedBerat: number;
+      let parsedMin: number;
+      let parsedTarif: number;
+      let parsedTotal: number;
+
+      try {
+        parsedColy = parseRequiredPositiveInt(transaction.coly, 'coly');
+        parsedBerat = parseRequiredPositiveInt(transaction.berat, 'berat');
+        parsedMin = parseMinValue(transaction.min);
+        parsedTarif = transaction.tarif === undefined || transaction.tarif === null
+          ? 0
+          : parseRequiredNonNegativeInt(transaction.tarif, 'tarif');
+        parsedTotal = parseRequiredNonNegativeInt(transaction.total, 'total');
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid numeric transaction value' });
+        return;
+      }
+
+      parsedTransactions.push({
+        tanggal: normalizedTanggal,
+        pengirim: transaction.pengirim,
+        penerima: transaction.penerima,
+        coly: parsedColy,
+        berat: parsedBerat,
+        min: parsedMin,
+        tarif: parsedTarif,
+        total: parsedTotal,
+        noResi: transaction.noResi.trim(),
+        keterangan: transaction.keterangan || null,
+      });
     }
 
     // Check for duplicate noResi in request
-    const noResiList = transactions.map((t: { noResi: string }) => t.noResi.trim());
+    const noResiList = parsedTransactions.map((transaction) => transaction.noResi);
     const uniqueNoResi = new Set(noResiList);
     if (uniqueNoResi.size !== noResiList.length) {
       res.status(400).json({ error: 'Duplicate noResi found in transactions' });
@@ -179,44 +326,23 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     if (existingTransactions.length > 0) {
-      const existingNoResi = existingTransactions.map((t) => t.noResi).join(', ');
+      const existingNoResi = existingTransactions.map((transaction) => transaction.noResi).join(', ');
       res.status(400).json({ error: `noResi already exists: ${existingNoResi}` });
       return;
     }
 
     // Calculate total
-    const totalAmount = transactions.reduce((sum: number, t: { total: number }) => sum + Number(t.total), 0);
+    const totalAmount = parsedTransactions.reduce((sum, transaction) => sum + transaction.total, 0);
 
     // Create invoice with transactions in a transaction
     const invoice = await prisma.invoice.create({
       data: {
         title: title.trim(),
         total: totalAmount,
-        count: transactions.length,
+        count: parsedTransactions.length,
+        dateMode: toPrismaInvoiceDateMode(dateMode),
         transactions: {
-          create: transactions.map((t: {
-            tanggal: string;
-            pengirim: string;
-            penerima: string;
-            coly: number;
-            berat: number;
-            min: number;
-            tarif: number;
-            total: number;
-            noResi: string;
-            keterangan?: string;
-          }) => ({
-            tanggal: new Date(t.tanggal),
-            pengirim: t.pengirim,
-            penerima: t.penerima,
-            coly: Number(t.coly),
-            berat: Number(t.berat),
-            min: Number(t.min) || 10,
-            tarif: Number(t.tarif) || 0,
-            total: Number(t.total),
-            noResi: t.noResi.trim(),
-            keterangan: t.keterangan || null,
-          })),
+          create: parsedTransactions,
         },
       },
       include: {
@@ -230,6 +356,7 @@ router.post('/', async (req: Request, res: Response) => {
       createdAt: invoice.createdAt,
       total: invoice.total,
       count: invoice.transactions.length,
+      dateMode: fromPrismaInvoiceDateMode(invoice.dateMode),
       transactions: invoice.transactions,
     });
   } catch (error) {
@@ -238,7 +365,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/invoice/:id - Update invoice title
+// PUT /api/invoice/:id - Update invoice title and date mode
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -250,14 +377,61 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    if (!title || typeof title !== 'string' || title.trim() === '') {
-      res.status(400).json({ error: 'Title is required' });
+    if (title === undefined && req.body.dateMode === undefined) {
+      res.status(400).json({ error: 'At least one updatable field is required' });
       return;
+    }
+
+    const existingInvoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        transactions: {
+          select: { tanggal: true },
+        },
+      },
+    });
+
+    if (!existingInvoice || existingInvoice.deletedAt !== null) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return;
+    }
+
+    const updateData: Prisma.InvoiceUpdateInput = {};
+
+    if (title !== undefined) {
+      if (typeof title !== 'string' || title.trim() === '') {
+        res.status(400).json({ error: 'Title is required' });
+        return;
+      }
+
+      updateData.title = title.trim();
+    }
+
+    if (req.body.dateMode !== undefined) {
+      let normalizedDateMode: ReturnType<typeof normalizeInvoiceDateMode>;
+      try {
+        normalizedDateMode = normalizeInvoiceDateMode(req.body.dateMode);
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid invoice date mode' });
+        return;
+      }
+
+      if (
+        normalizedDateMode === 'enabled' &&
+        existingInvoice.transactions.some((transaction) => transaction.tanggal === null)
+      ) {
+        res.status(400).json({
+          error: 'tanggal is required for all transactions when date mode is enabled',
+        });
+        return;
+      }
+
+      updateData.dateMode = toPrismaInvoiceDateMode(normalizedDateMode);
     }
 
     const invoice = await prisma.invoice.update({
       where: { id: invoiceId },
-      data: { title: title.trim() },
+      data: updateData,
       include: {
         transactions: true,
       },
@@ -269,6 +443,7 @@ router.put('/:id', async (req: Request, res: Response) => {
       createdAt: invoice.createdAt,
       total: invoice.total,
       count: invoice.transactions.length,
+      dateMode: fromPrismaInvoiceDateMode(invoice.dateMode),
       transactions: invoice.transactions,
     });
   } catch (error) {
