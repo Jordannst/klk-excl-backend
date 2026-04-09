@@ -8,19 +8,26 @@ datasource db {
   // directUrl = env("DIRECT_URL") // Temporarily disabled - Supabase direct connection not accessible
 }
 
+enum InvoiceDateMode {
+  enabled
+  blank_column @map("blank-column")
+  hidden_column @map("hidden-column")
+}
+
 model Invoice {
-  id           Int         @id @default(autoincrement())
+  id           Int             @id @default(autoincrement())
   title        String
-  createdAt    DateTime    @default(now())
-  deletedAt    DateTime?   // NULL = active, timestamp = soft deleted (in trash)
-  total        Int         @default(0)
-  count        Int         @default(0)
+  createdAt    DateTime        @default(now())
+  deletedAt    DateTime?       // NULL = active, timestamp = soft deleted (in trash)
+  total        Int             @default(0)
+  count        Int             @default(0)
+  dateMode     InvoiceDateMode @default(enabled)
   transactions Transaksi[]
 }
 
 model Transaksi {
-  id         Int      @id @default(autoincrement())
-  tanggal    DateTime @db.Date
+  id         Int       @id @default(autoincrement())
+  tanggal    DateTime? @db.Date
   pengirim   String
   penerima   String
   coly       Int

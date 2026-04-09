@@ -1,8 +1,87 @@
 import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
+import {
+  fromPrismaInvoiceDateMode,
+  normalizeTransactionDate,
+  type InvoiceDateMode,
+} from '../lib/invoice-date-mode';
 import { prisma } from '../lib/prisma';
 
 const router = Router();
+
+function parseRequiredInt(value: unknown, fieldName: string): number {
+  if (value === null || value === undefined) {
+    throw new Error(`${fieldName} must be a valid integer`);
+  }
+
+  if (typeof value === 'string' && value.trim() === '') {
+    throw new Error(`${fieldName} must be a valid integer`);
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`${fieldName} must be a valid integer`);
+  }
+
+  return parsed;
+}
+
+function parseRequiredNonNegativeInt(value: unknown, fieldName: string): number {
+  const parsed = parseRequiredInt(value, fieldName);
+
+  if (parsed < 0) {
+    throw new Error(`${fieldName} must be greater than or equal to 0`);
+  }
+
+  return parsed;
+}
+
+function parseRequiredPositiveInt(value: unknown, fieldName: string): number {
+  const parsed = parseRequiredInt(value, fieldName);
+
+  if (parsed <= 0) {
+    throw new Error(`${fieldName} must be greater than 0`);
+  }
+
+  return parsed;
+}
+
+function parseOptionalInt(value: unknown, fieldName: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return parseRequiredInt(value, fieldName);
+}
+
+function parseOptionalNonNegativeInt(value: unknown, fieldName: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return parseRequiredNonNegativeInt(value, fieldName);
+}
+
+function parseOptionalPositiveInt(value: unknown, fieldName: string): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return parseRequiredPositiveInt(value, fieldName);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function parseMinValue(value: unknown): number {
+  if (value === undefined || value === null || value === '') {
+    return 10;
+  }
+
+  return parseRequiredPositiveInt(value, 'min');
+}
 
 // GET /api/transaksi - Fetch latest 50 records (descending ID)
 router.get('/', async (_req: Request, res: Response) => {
@@ -59,25 +138,91 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     // Validate required fields
-    if (!tanggal || !pengirim || !penerima || coly === undefined || berat === undefined || total === undefined) {
-      res.status(400).json({ error: 'Missing required fields: tanggal, pengirim, penerima, coly, berat, total' });
+    if (!isNonEmptyString(pengirim) || !isNonEmptyString(penerima) || coly === undefined || berat === undefined || total === undefined) {
+      res.status(400).json({ error: 'Missing required fields: pengirim, penerima, coly, berat, total' });
       return;
     }
 
-    const newTransaksi = await prisma.transaksi.create({
-      data: {
-        tanggal: new Date(tanggal),
-        pengirim,
-        penerima,
-        coly: Number(coly),
-        berat: Number(berat),
-        min: Number(min) || 10,
-        tarif: Number(tarif) || 0,
-        total: Number(total),
-        noResi: noResi.trim(),
-        keterangan: keterangan || null,
-        invoiceId: invoiceId ? Number(invoiceId) : null,
-      },
+    let normalizedInvoiceId: number | null = null;
+    if (invoiceId !== undefined && invoiceId !== null && invoiceId !== '') {
+      normalizedInvoiceId = Number(invoiceId);
+
+      if (!Number.isInteger(normalizedInvoiceId) || normalizedInvoiceId <= 0) {
+        res.status(400).json({ error: 'invoiceId must be a valid positive integer' });
+        return;
+      }
+    }
+
+    let invoiceDateMode: InvoiceDateMode = 'enabled';
+
+    if (normalizedInvoiceId) {
+      const existingInvoice = await prisma.invoice.findUnique({
+        where: { id: normalizedInvoiceId },
+        select: {
+          id: true,
+          dateMode: true,
+          deletedAt: true,
+        },
+      });
+
+      if (!existingInvoice || existingInvoice.deletedAt !== null) {
+        res.status(404).json({ error: 'Invoice not found' });
+        return;
+      }
+
+      invoiceDateMode = fromPrismaInvoiceDateMode(existingInvoice.dateMode);
+    }
+
+    let normalizedTanggal: Date | null;
+    let parsedColy: number;
+    let parsedBerat: number;
+    let parsedMin: number;
+    let parsedTarif: number;
+    let parsedTotal: number;
+    try {
+      normalizedTanggal = normalizeTransactionDate(tanggal, invoiceDateMode);
+      parsedColy = parseRequiredPositiveInt(coly, 'coly');
+      parsedBerat = parseRequiredPositiveInt(berat, 'berat');
+      parsedMin = parseMinValue(min);
+      parsedTarif = tarif === undefined || tarif === null || tarif === '' ? 0 : parseRequiredNonNegativeInt(tarif, 'tarif');
+      parsedTotal = parseRequiredNonNegativeInt(total, 'total');
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid transaction payload' });
+      return;
+    }
+
+    const newTransaksi = await prisma.$transaction(async (tx) => {
+      const createdTransaksi = await tx.transaksi.create({
+        data: {
+          tanggal: normalizedTanggal,
+          pengirim,
+          penerima,
+          coly: parsedColy,
+          berat: parsedBerat,
+          min: parsedMin,
+          tarif: parsedTarif,
+          total: parsedTotal,
+          noResi: noResi.trim(),
+          keterangan: keterangan || null,
+          invoiceId: normalizedInvoiceId,
+        },
+      });
+
+      if (normalizedInvoiceId) {
+        await tx.invoice.update({
+          where: { id: normalizedInvoiceId },
+          data: {
+            total: {
+              increment: createdTransaksi.total,
+            },
+            count: {
+              increment: 1,
+            },
+          },
+        });
+      }
+
+      return createdTransaksi;
     });
 
     res.status(201).json(newTransaksi);
@@ -108,6 +253,11 @@ router.put('/:id', async (req: Request, res: Response) => {
     // Check if transaction exists
     const existing = await prisma.transaksi.findUnique({
       where: { id: transaksiId },
+      include: {
+        invoice: {
+          select: { dateMode: true },
+        },
+      },
     });
 
     if (!existing) {
@@ -120,15 +270,55 @@ router.put('/:id', async (req: Request, res: Response) => {
     // Build update data with only provided fields
     const updateData: Prisma.TransaksiUpdateInput = {};
 
-    if (tanggal !== undefined) updateData.tanggal = new Date(tanggal);
-    if (pengirim !== undefined) updateData.pengirim = pengirim;
-    if (penerima !== undefined) updateData.penerima = penerima;
-    if (coly !== undefined) updateData.coly = Number(coly);
-    if (berat !== undefined) updateData.berat = Number(berat);
-    if (min !== undefined) updateData.min = Number(min);
-    if (tarif !== undefined) updateData.tarif = Number(tarif);
-    if (total !== undefined) updateData.total = Number(total);
-    if (noResi !== undefined) updateData.noResi = noResi.trim();
+    if (tanggal !== undefined) {
+      try {
+        const invoiceDateMode = existing.invoice
+          ? fromPrismaInvoiceDateMode(existing.invoice.dateMode)
+          : 'enabled';
+        updateData.tanggal = normalizeTransactionDate(tanggal, invoiceDateMode);
+      } catch (error) {
+        res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid tanggal value' });
+        return;
+      }
+    }
+    if (pengirim !== undefined) {
+      if (!isNonEmptyString(pengirim)) {
+        res.status(400).json({ error: 'pengirim must be a non-empty string' });
+        return;
+      }
+      updateData.pengirim = pengirim.trim();
+    }
+    if (penerima !== undefined) {
+      if (!isNonEmptyString(penerima)) {
+        res.status(400).json({ error: 'penerima must be a non-empty string' });
+        return;
+      }
+      updateData.penerima = penerima.trim();
+    }
+
+    try {
+      const parsedColy = parseOptionalPositiveInt(coly, 'coly');
+      const parsedBerat = parseOptionalPositiveInt(berat, 'berat');
+      const parsedMin = min !== undefined ? parseMinValue(min) : undefined;
+      const parsedTarif = parseOptionalNonNegativeInt(tarif, 'tarif');
+      const parsedTotal = parseOptionalNonNegativeInt(total, 'total');
+
+      if (parsedColy !== undefined) updateData.coly = parsedColy;
+      if (parsedBerat !== undefined) updateData.berat = parsedBerat;
+      if (parsedMin !== undefined) updateData.min = parsedMin;
+      if (parsedTarif !== undefined) updateData.tarif = parsedTarif;
+      if (parsedTotal !== undefined) updateData.total = parsedTotal;
+    } catch (error) {
+      res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid numeric value' });
+      return;
+    }
+    if (noResi !== undefined) {
+      if (typeof noResi !== 'string' || noResi.trim() === '') {
+        res.status(400).json({ error: 'noResi is required and must be a non-empty string' });
+        return;
+      }
+      updateData.noResi = noResi.trim();
+    }
     if (keterangan !== undefined) updateData.keterangan = keterangan || null;
 
     const updatedTransaksi = await prisma.transaksi.update({
