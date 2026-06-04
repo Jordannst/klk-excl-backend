@@ -80,7 +80,7 @@ function parseMinValue(value: unknown): number {
     return 10;
   }
 
-  return parseRequiredPositiveInt(value, 'min');
+  return parseRequiredNonNegativeInt(value, 'min');
 }
 
 // GET /api/transaksi - Fetch latest 50 records (descending ID)
