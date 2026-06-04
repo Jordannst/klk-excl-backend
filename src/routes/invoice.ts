@@ -67,7 +67,7 @@ function parseMinValue(value: unknown): number {
     return 0;
   }
 
-  return parseRequiredPositiveInt(value, 'min');
+  return parseRequiredNonNegativeInt(value, 'min');
 }
 
 function parseOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
