@@ -8,6 +8,7 @@ import invoiceRoutes from './routes/invoice';
 import authRoutes from './routes/auth';
 import statsRoutes from './routes/stats';
 import signatureRoutes from './routes/signature';
+import pdfSpikeRoutes from './routes/pdfSpike';
 import { authMiddleware } from './middleware/auth.middleware';
 import { apiRateLimiter } from './middleware/rateLimit';
 
@@ -38,6 +39,9 @@ app.get('/api/health', (_req, res) => {
 
 // Auth routes (public)
 app.use('/api/auth', authRoutes);
+
+// Temporary guarded Chromium PDF deployment smoke test.
+app.use('/api/pdf-spike', pdfSpikeRoutes);
 
 // Protected routes - require authentication
 app.use('/api/transaksi', authMiddleware, transaksiRoutes);
