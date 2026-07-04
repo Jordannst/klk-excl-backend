@@ -27,6 +27,14 @@ router.get('/', async (req: Request, res: Response) => {
     res.send(pdf);
   } catch (error) {
     console.error('Error generating PDF spike:', error);
+
+    if (process.env.PDF_SPIKE_DEBUG === 'true') {
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      res.status(500).json({ error: 'Failed to generate PDF spike', message, stack });
+      return;
+    }
+
     res.status(500).json({ error: 'Failed to generate PDF spike' });
   }
 });
