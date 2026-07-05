@@ -71,7 +71,7 @@ jobs:
             echo "Azure Web App klkinvoice not found"
             exit 1
           fi
-          az webapp config appsettings set --ids "$APP_ID" --settings PDF_SPIKE_ENABLED=true PDF_SPIKE_DEBUG=true PDF_SPIKE_TOKEN="$PDF_SPIKE_TOKEN"
+          az webapp config appsettings set --ids "$APP_ID" --settings PDF_SPIKE_ENABLED=true PDF_SPIKE_DEBUG=true PUPPETEER_CACHE_DIR=/home/site/wwwroot/node_modules/.cache/puppeteer PDF_SPIKE_TOKEN="$PDF_SPIKE_TOKEN"
 
       - name: 'Deploy to Azure Web App'
         id: deploy-to-webapp
