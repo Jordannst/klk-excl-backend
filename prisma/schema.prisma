@@ -36,7 +36,7 @@ model Transaksi {
   min        Int      @default(10)
   tarif      Int      @default(0)
   total      Int
-  noResi     String   @unique
+  noResi     String
   keterangan String?  // Optional notes field
   createdAt  DateTime @default(now())
   invoiceId  Int?
