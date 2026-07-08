@@ -70,6 +70,10 @@ function parseMinValue(value: unknown): number {
   return parseRequiredNonNegativeInt(value, 'min');
 }
 
+export function hasDuplicateNoResiInRequest(noResiList: string[]): boolean {
+  return new Set(noResiList).size !== noResiList.length;
+}
+
 function parseOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
   if (value === undefined) {
     return undefined;
@@ -369,23 +373,8 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Check for duplicate noResi in request
     const noResiList = parsedTransactions.map((transaction) => transaction.noResi);
-    const uniqueNoResi = new Set(noResiList);
-    if (uniqueNoResi.size !== noResiList.length) {
+    if (hasDuplicateNoResiInRequest(noResiList)) {
       res.status(400).json({ error: 'Duplicate noResi found in transactions' });
-      return;
-    }
-
-    // Check for existing noResi in database
-    const existingTransactions = await prisma.transaksi.findMany({
-      where: {
-        noResi: { in: noResiList },
-      },
-      select: { noResi: true },
-    });
-
-    if (existingTransactions.length > 0) {
-      const existingNoResi = existingTransactions.map((transaction) => transaction.noResi).join(', ');
-      res.status(400).json({ error: `noResi already exists: ${existingNoResi}` });
       return;
     }
 
