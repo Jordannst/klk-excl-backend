@@ -1,6 +1,7 @@
 import assert from 'assert';
 import { formatPdfDate, formatRupiah, safeText } from '../services/pdf/format';
 import { generateInvoicePdf, type InvoicePdfRequest } from '../services/pdf/invoicePdf';
+import { generateTransactionPdf } from '../services/pdf/transactionPdf';
 
 assert.equal(formatRupiah(1250000), '1.250.000');
 assert.equal(formatPdfDate('2026-07-08'), '08 Jul 2026');
@@ -61,5 +62,15 @@ const invalidSignaturePdf = generateInvoicePdf({
   logoBase64: 'not-a-valid-png',
 });
 assert.equal(invalidSignaturePdf.subarray(0, 4).toString('utf8'), '%PDF');
+
+const transactionPdf = generateTransactionPdf({
+  title: 'Perhitungan Pengiriman Barang QA',
+  dateMode: 'enabled',
+  showKeteranganColumn: true,
+  transactions: makeTransactions(120),
+});
+
+assert.equal(transactionPdf.subarray(0, 4).toString('utf8'), '%PDF');
+assert.ok(transactionPdf.length > 1000);
 
 console.log('pdf-service check passed');
