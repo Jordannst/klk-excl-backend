@@ -1,7 +1,25 @@
 import { jsPDF } from 'jspdf';
 import { autoTable, type CellDef, type RowInput } from 'jspdf-autotable';
 import { formatPdfDate, formatRupiah, safeText } from './format';
-import { addPageIfNeeded, drawPageNumbers, PDF_MARGIN_MM } from './pdfLayout';
+import {
+  addPageIfNeeded,
+  drawPageNumbers,
+  PDF_BODY_FONT_SIZE,
+  PDF_COLY_COLUMN_WIDTH_MM,
+  PDF_COMPANY_FONT_SIZE,
+  PDF_KETERANGAN_COLUMN_WIDTH_MM,
+  PDF_MARGIN_MM,
+  PDF_NO_STT_COLUMN_WIDTH_MM,
+  PDF_PENGIRIM_COLUMN_WIDTH_MM,
+  PDF_PENERIMA_COLUMN_WIDTH_MM,
+  PDF_SMALL_FONT_SIZE,
+  PDF_TABLE_CELL_PADDING_MM,
+  PDF_TABLE_DENSE_CELL_PADDING_MM,
+  PDF_TABLE_DENSE_FONT_SIZE,
+  PDF_TABLE_HEADER_CELL_PADDING_MM,
+  PDF_TABLE_HEADER_FONT_SIZE,
+  PDF_TABLE_FONT_SIZE,
+} from './pdfLayout';
 
 const FOOTER_BLOCK_HEIGHT_MM = 100;
 
@@ -52,9 +70,9 @@ function drawHeader(doc: jsPDF, logoBase64?: string): void {
   }
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
+  doc.setFontSize(PDF_COMPANY_FONT_SIZE);
   doc.text('PT. Kemilau Lintas Khatulistiwa', 105, 17, { align: 'center' });
-  doc.setFontSize(10);
+  doc.setFontSize(PDF_BODY_FONT_SIZE);
   doc.text('Branch Manado: Permata Klabat Blok E1 No 17 Manado', 105, 24, { align: 'center' });
   doc.text('No. Tlp. : (0431) 7242432 HP : 085395549100', 105, 30, { align: 'center' });
   doc.text('Email : klk.express.mdc@gmail.com', 105, 36, { align: 'center' });
@@ -65,7 +83,7 @@ function drawHeader(doc: jsPDF, logoBase64?: string): void {
 function drawIntro(doc: jsPDF, payload: InvoicePdfRequest): void {
   const form = payload.formData;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
+  doc.setFontSize(PDF_BODY_FONT_SIZE);
   doc.text(safeText(form.tanggalSurat), PDF_MARGIN_MM, 51);
   doc.text(`No. ${safeText(form.nomorInvoice)}`, PDF_MARGIN_MM, 58);
   doc.text('Kepada Yth :', PDF_MARGIN_MM, 72);
@@ -141,7 +159,7 @@ function drawFooterBlock(doc: jsPDF, startY: number, payload: InvoicePdfRequest,
   const totalTagihan = handlingTotal + biayaKirimDoc;
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
+  doc.setFontSize(PDF_BODY_FONT_SIZE);
   doc.text('1. Biaya handling', PDF_MARGIN_MM, y);
   doc.text(`Rp ${formatRupiah(handlingTotal)}`, 86, y, { align: 'right' });
   doc.text('2. Biaya Kirim Doc', PDF_MARGIN_MM, y + 6);
@@ -152,7 +170,7 @@ function drawFooterBlock(doc: jsPDF, startY: number, payload: InvoicePdfRequest,
   doc.text(`Rp ${formatRupiah(totalTagihan)}`, 86, y + 15, { align: 'right' });
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(PDF_SMALL_FONT_SIZE);
   doc.text('Jumlah tagihan bisa ditransfer melalui :', PDF_MARGIN_MM, y + 27);
   doc.setFont('helvetica', 'bold');
   doc.text('Rek mandiri, 1500010112710 a/n. Janti Feine Rundengan', PDF_MARGIN_MM, y + 33);
@@ -202,17 +220,36 @@ export function generateInvoicePdf(payload: InvoicePdfRequest): Buffer {
     rowPageBreak: 'avoid',
     margin: { top: PDF_MARGIN_MM, right: PDF_MARGIN_MM, bottom: 18, left: PDF_MARGIN_MM },
     theme: 'grid',
-    styles: { font: 'helvetica', fontSize: showKet ? 7 : 8, cellPadding: 1.6, lineColor: [0, 0, 0], lineWidth: 0.15, overflow: 'linebreak', valign: 'middle' },
-    headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', halign: 'center' },
+    styles: {
+      font: 'helvetica',
+      fontSize: showKet ? PDF_TABLE_DENSE_FONT_SIZE : PDF_TABLE_FONT_SIZE,
+      cellPadding: showKet ? PDF_TABLE_DENSE_CELL_PADDING_MM : PDF_TABLE_CELL_PADDING_MM,
+      lineColor: [0, 0, 0],
+      lineWidth: 0.15,
+      overflow: 'linebreak',
+      valign: 'middle',
+    },
+    headStyles: {
+      fillColor: [240, 240, 240],
+      textColor: [0, 0, 0],
+      fontStyle: 'bold',
+      halign: 'center',
+      fontSize: PDF_TABLE_HEADER_FONT_SIZE,
+      cellPadding: PDF_TABLE_HEADER_CELL_PADDING_MM,
+    },
     footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 8 },
-      ...(showDate ? { 1: { cellWidth: 21 } } : {}),
-      [columns.indexOf('Coly')]: { halign: 'center', cellWidth: 9 },
-      [columns.indexOf('Kg')]: { halign: 'center', cellWidth: 9 },
-      [columns.indexOf('Min')]: { halign: 'center', cellWidth: 9 },
-      [columns.indexOf('Tarif')]: { halign: 'right', cellWidth: 17 },
-      [columns.indexOf('Jumlah')]: { halign: 'right', cellWidth: 20 },
+      0: { halign: 'center', cellWidth: 7 },
+      ...(showDate ? { 1: { cellWidth: 20 } } : {}),
+      [columns.indexOf('No Stt')]: { cellWidth: PDF_NO_STT_COLUMN_WIDTH_MM },
+      [columns.indexOf('Pengirim')]: { cellWidth: PDF_PENGIRIM_COLUMN_WIDTH_MM },
+      [columns.indexOf('Penerima')]: { cellWidth: PDF_PENERIMA_COLUMN_WIDTH_MM },
+      [columns.indexOf('Coly')]: { halign: 'center', cellWidth: PDF_COLY_COLUMN_WIDTH_MM },
+      [columns.indexOf('Kg')]: { halign: 'center', cellWidth: 8 },
+      [columns.indexOf('Min')]: { halign: 'center', cellWidth: 8 },
+      [columns.indexOf('Tarif')]: { halign: 'right', cellWidth: 16 },
+      [columns.indexOf('Jumlah')]: { halign: 'right', cellWidth: 19 },
+      ...(showKet ? { [columns.indexOf('Ket')]: { cellWidth: PDF_KETERANGAN_COLUMN_WIDTH_MM } } : {}),
     },
   });
 
