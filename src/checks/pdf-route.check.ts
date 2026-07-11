@@ -51,6 +51,20 @@ async function withServer(run: (baseUrl: string) => Promise<void>) {
 
 (async () => {
   await withServer(async (baseUrl) => {
+    const malformedInvoice = await fetch(`${baseUrl}/api/pdf/invoice`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ transactions: makePayload(1).transactions }),
+    });
+    assert.equal(malformedInvoice.status, 400);
+
+    const malformedTransactions = await fetch(`${baseUrl}/api/pdf/transactions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Invalid transactions' }),
+    });
+    assert.equal(malformedTransactions.status, 400);
+
     const empty = await fetch(`${baseUrl}/api/pdf/invoice`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

@@ -4,6 +4,18 @@ import { generateTransactionPdf } from '../services/pdf/transactionPdf';
 
 const router = Router();
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isInvoicePdfRequest(value: unknown): boolean {
+  return isRecord(value) && isRecord(value.formData) && Array.isArray(value.transactions);
+}
+
+function isTransactionPdfRequest(value: unknown): boolean {
+  return isRecord(value) && Array.isArray(value.transactions);
+}
+
 function sendPdf(res: Response, pdf: Buffer, filename: string): void {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -12,6 +24,11 @@ function sendPdf(res: Response, pdf: Buffer, filename: string): void {
 }
 
 router.post('/invoice', (req: Request, res: Response) => {
+  if (!isInvoicePdfRequest(req.body)) {
+    res.status(400).json({ error: 'Invalid invoice PDF payload' });
+    return;
+  }
+
   try {
     const pdf = generateInvoicePdf(req.body);
     sendPdf(res, pdf, 'invoice-klk.pdf');
@@ -27,6 +44,11 @@ router.post('/invoice', (req: Request, res: Response) => {
 });
 
 router.post('/transactions', (req: Request, res: Response) => {
+  if (!isTransactionPdfRequest(req.body)) {
+    res.status(400).json({ error: 'Invalid transaction PDF payload' });
+    return;
+  }
+
   try {
     const pdf = generateTransactionPdf(req.body);
     sendPdf(res, pdf, 'transaksi-klk.pdf');
