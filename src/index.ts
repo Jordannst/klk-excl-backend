@@ -8,6 +8,7 @@ import invoiceRoutes from './routes/invoice';
 import authRoutes from './routes/auth';
 import statsRoutes from './routes/stats';
 import signatureRoutes from './routes/signature';
+import pdfRoutes from './routes/pdf';
 import { authMiddleware } from './middleware/auth.middleware';
 import { apiRateLimiter } from './middleware/rateLimit';
 
@@ -19,7 +20,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
 app.use(
   cors({
@@ -44,6 +45,7 @@ app.use('/api/transaksi', authMiddleware, transaksiRoutes);
 app.use('/api/invoice', authMiddleware, invoiceRoutes);
 app.use('/api/stats', authMiddleware, statsRoutes);
 app.use('/api/signature', authMiddleware, signatureRoutes);
+app.use('/api/pdf', authMiddleware, pdfRoutes);
 
 // Start server
 app.listen(config.port, async () => {
