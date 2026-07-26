@@ -98,6 +98,7 @@ function toInvoiceResponse(invoice: {
   total: number;
   dateMode: PrismaInvoiceDateMode;
   showKeteranganColumn: boolean;
+  printSettings?: unknown;
   transactions: Array<unknown>;
 }) {
   return {
@@ -108,6 +109,7 @@ function toInvoiceResponse(invoice: {
     count: invoice.transactions.length,
     dateMode: fromPrismaInvoiceDateMode(invoice.dateMode),
     showKeteranganColumn: invoice.showKeteranganColumn,
+    printSettings: invoice.printSettings ?? null,
     transactions: invoice.transactions,
   };
 }
@@ -417,7 +419,15 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    if (title === undefined && !hasDateModeField(req.body) && !hasKeteranganColumnField(req.body)) {
+    const hasPrintSettingsField =
+      typeof req.body === 'object' && req.body !== null && 'printSettings' in req.body;
+
+    if (
+      title === undefined &&
+      !hasDateModeField(req.body) &&
+      !hasKeteranganColumnField(req.body) &&
+      !hasPrintSettingsField
+    ) {
       res.status(400).json({ error: 'At least one updatable field is required' });
       return;
     }
@@ -480,6 +490,22 @@ router.put('/:id', async (req: Request, res: Response) => {
 
       if (normalizedShowKeteranganColumn !== undefined) {
         updateData.showKeteranganColumn = normalizedShowKeteranganColumn;
+      }
+    }
+
+    if (hasPrintSettingsField) {
+      const { printSettings } = req.body;
+      if (printSettings === null) {
+        updateData.printSettings = Prisma.DbNull;
+      } else if (typeof printSettings === 'object' && !Array.isArray(printSettings)) {
+        if (JSON.stringify(printSettings).length > 4000) {
+          res.status(400).json({ error: 'printSettings too large' });
+          return;
+        }
+        updateData.printSettings = printSettings as Prisma.InputJsonObject;
+      } else {
+        res.status(400).json({ error: 'printSettings must be an object or null' });
+        return;
       }
     }
 

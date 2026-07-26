@@ -23,6 +23,7 @@ model Invoice {
   count               Int             @default(0)
   dateMode            InvoiceDateMode @default(enabled)
   showKeteranganColumn Boolean        @default(true)
+  printSettings       Json?           // last-used Print/PDF form data (per invoice)
   transactions        Transaksi[]
 }
 
