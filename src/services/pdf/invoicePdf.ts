@@ -9,6 +9,7 @@ import {
   PDF_COMPANY_FONT_SIZE,
   PDF_KETERANGAN_COLUMN_WIDTH_MM,
   PDF_MARGIN_MM,
+  PDF_NO_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,
   PDF_SMALL_FONT_SIZE,
@@ -124,7 +125,7 @@ export function calculateInvoicePdfColumnWidths(
   const columns = tableColumns(showDate, showKet);
   // showKet also selects the dense font, which needs less width per character.
   const widths: Record<number, number> = {
-    0: 7,
+    0: PDF_NO_COLUMN_WIDTH_MM,
     [columns.indexOf('No Stt')]: showKet
       ? PDF_NO_STT_COLUMN_WIDTH_MM
       : PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,

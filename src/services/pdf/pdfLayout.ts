@@ -11,6 +11,8 @@ export const PDF_TABLE_HEADER_FONT_SIZE = 8;
 export const PDF_TABLE_CELL_PADDING_MM = 2.2;
 export const PDF_TABLE_DENSE_CELL_PADDING_MM = 1.9;
 export const PDF_TABLE_HEADER_CELL_PADDING_MM = 0.8;
+// Fits 3-digit row numbers on one line at the normal (10pt) table font.
+export const PDF_NO_COLUMN_WIDTH_MM = 11;
 // Real tracking numbers reach 17 chars (e.g. "A4840520261816221"); these keep
 // them on one line at the dense (9pt) and normal (10pt) table font sizes.
 export const PDF_NO_STT_COLUMN_WIDTH_MM = 34;

@@ -6,6 +6,7 @@ import {
   PDF_KETERANGAN_COLUMN_WIDTH_MM,
   drawPageNumbers,
   PDF_MARGIN_MM,
+  PDF_NO_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,
   PDF_SMALL_FONT_SIZE,
@@ -56,7 +57,7 @@ export function calculateTransactionPdfColumnWidths(
   const tableColumns = columns(showDate, showKet);
   // showKet also selects the dense font, which needs less width per character.
   const widths: Record<number, number> = {
-    0: 7,
+    0: PDF_NO_COLUMN_WIDTH_MM,
     [tableColumns.indexOf('No Stt')]: showKet
       ? PDF_NO_STT_COLUMN_WIDTH_MM
       : PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,

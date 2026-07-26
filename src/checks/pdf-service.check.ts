@@ -10,6 +10,7 @@ import {
   PDF_COLY_COLUMN_WIDTH_MM,
   PDF_COMPANY_FONT_SIZE,
   PDF_KETERANGAN_COLUMN_WIDTH_MM,
+  PDF_NO_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,
   PDF_PENGIRIM_COLUMN_WIDTH_MM,
@@ -36,6 +37,7 @@ assert.ok(PDF_TABLE_DENSE_FONT_SIZE >= 9, 'dense PDF table font must stay readab
 assert.ok(PDF_TABLE_FONT_SIZE >= 10, 'standard PDF table font must stay readable');
 assert.ok(PDF_TABLE_HEADER_FONT_SIZE <= PDF_TABLE_DENSE_FONT_SIZE, 'PDF table header must be compact enough to avoid word breaks');
 assert.ok(PDF_TABLE_HEADER_CELL_PADDING_MM <= 1.2, 'PDF table header padding must leave room for short labels');
+assert.ok(PDF_NO_COLUMN_WIDTH_MM >= 11, 'No column must fit 3-digit row numbers on one line');
 assert.ok(PDF_NO_STT_COLUMN_WIDTH_MM >= 34, 'No Stt column must fit 17-char tracking numbers at the dense font');
 assert.ok(PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM >= 38, 'No Stt column must fit 17-char tracking numbers at the normal font');
 assert.ok(PDF_PENGIRIM_COLUMN_WIDTH_MM >= 24, 'Pengirim column header must stay on one line');
