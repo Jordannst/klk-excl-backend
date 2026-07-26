@@ -7,8 +7,7 @@ import {
   drawPageNumbers,
   PDF_MARGIN_MM,
   PDF_NO_STT_COLUMN_WIDTH_MM,
-  PDF_PENGIRIM_COLUMN_WIDTH_MM,
-  PDF_PENERIMA_COLUMN_WIDTH_MM,
+  PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,
   PDF_SMALL_FONT_SIZE,
   PDF_TABLE_CELL_PADDING_MM,
   PDF_TABLE_DENSE_CELL_PADDING_MM,
@@ -26,6 +25,9 @@ export type TransactionPdfRequest = {
   showKeteranganColumn?: boolean;
   transactions: PdfTransaction[];
 };
+
+const A4_LANDSCAPE_WIDTH_MM = 297;
+const TRANSACTION_TABLE_RIGHT_MARGIN_MM = 5;
 
 function shouldShowDateColumn(dateMode: TransactionPdfRequest['dateMode']): boolean {
   return dateMode !== 'hidden-column';
@@ -45,6 +47,37 @@ function columns(showDate: boolean, showKet: boolean): string[] {
     'Jumlah',
     ...(showKet ? ['Ket'] : []),
   ];
+}
+
+export function calculateTransactionPdfColumnWidths(
+  showDate: boolean,
+  showKet: boolean
+): Record<number, number> {
+  const tableColumns = columns(showDate, showKet);
+  // showKet also selects the dense font, which needs less width per character.
+  const widths: Record<number, number> = {
+    0: 7,
+    [tableColumns.indexOf('No Stt')]: showKet
+      ? PDF_NO_STT_COLUMN_WIDTH_MM
+      : PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,
+    [tableColumns.indexOf('C')]: PDF_COLY_COLUMN_WIDTH_MM,
+    [tableColumns.indexOf('Kg')]: 8,
+    [tableColumns.indexOf('Min')]: 8,
+    [tableColumns.indexOf('Tarif')]: 17,
+    [tableColumns.indexOf('Jumlah')]: 21,
+  };
+
+  if (showDate) widths[tableColumns.indexOf('Hari/Tgl')] = 20;
+  if (showKet) widths[tableColumns.indexOf('Ket')] = PDF_KETERANGAN_COLUMN_WIDTH_MM;
+
+  const fixedWidth = Object.values(widths).reduce((sum, width) => sum + width, 0);
+  const textColumnWidth = (
+    A4_LANDSCAPE_WIDTH_MM - PDF_MARGIN_MM - TRANSACTION_TABLE_RIGHT_MARGIN_MM - fixedWidth
+  ) / 2;
+  widths[tableColumns.indexOf('Pengirim')] = textColumnWidth;
+  widths[tableColumns.indexOf('Penerima')] = textColumnWidth;
+
+  return widths;
 }
 
 function formatDateCell(row: PdfTransaction, dateMode: TransactionPdfRequest['dateMode']): string {
@@ -81,8 +114,10 @@ export function generateTransactionPdf(payload: TransactionPdfRequest): Buffer {
   const showDate = shouldShowDateColumn(payload.dateMode);
   const showKet = payload.showKeteranganColumn !== false;
   const tableColumns = columns(showDate, showKet);
+  const columnWidths = calculateTransactionPdfColumnWidths(showDate, showKet);
   const total = payload.transactions.reduce((sum, row) => sum + Math.trunc(row.total || 0), 0);
-  const totalColSpan = tableColumns.length - (showKet ? 2 : 1);
+  // TOTAL value spans Tarif+Jumlah so large report totals stay on one line.
+  const totalColSpan = tableColumns.length - (showKet ? 3 : 2);
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
   doc.setFont('helvetica', 'bold');
@@ -98,13 +133,19 @@ export function generateTransactionPdf(payload: TransactionPdfRequest): Buffer {
     body: body(payload.transactions, payload.dateMode, showDate, showKet),
     foot: [[
       { content: 'TOTAL', colSpan: totalColSpan, styles: { halign: 'right', fontStyle: 'bold' } } as CellDef,
-      { content: formatRupiah(total), styles: { halign: 'right', fontStyle: 'bold' } } as CellDef,
+      { content: formatRupiah(total), colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } } as CellDef,
       ...(showKet ? [''] : []),
     ]],
     showHead: 'everyPage',
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
-    margin: { top: PDF_MARGIN_MM, right: PDF_MARGIN_MM, bottom: 16, left: PDF_MARGIN_MM },
+    tableWidth: 'auto',
+    margin: {
+      top: PDF_MARGIN_MM,
+      right: TRANSACTION_TABLE_RIGHT_MARGIN_MM,
+      bottom: 16,
+      left: PDF_MARGIN_MM,
+    },
     theme: 'grid',
     styles: {
       font: 'helvetica',
@@ -125,17 +166,17 @@ export function generateTransactionPdf(payload: TransactionPdfRequest): Buffer {
     },
     footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 7 },
-      ...(showDate ? { 1: { cellWidth: 20 } } : {}),
-      [tableColumns.indexOf('No Stt')]: { cellWidth: PDF_NO_STT_COLUMN_WIDTH_MM },
-      [tableColumns.indexOf('Pengirim')]: { cellWidth: PDF_PENGIRIM_COLUMN_WIDTH_MM },
-      [tableColumns.indexOf('Penerima')]: { cellWidth: PDF_PENERIMA_COLUMN_WIDTH_MM },
-      [tableColumns.indexOf('C')]: { halign: 'center', cellWidth: PDF_COLY_COLUMN_WIDTH_MM },
-      [tableColumns.indexOf('Kg')]: { halign: 'center', cellWidth: 8 },
-      [tableColumns.indexOf('Min')]: { halign: 'center', cellWidth: 8 },
-      [tableColumns.indexOf('Tarif')]: { halign: 'right', cellWidth: 17 },
-      [tableColumns.indexOf('Jumlah')]: { halign: 'right', cellWidth: 21 },
-      ...(showKet ? { [tableColumns.indexOf('Ket')]: { cellWidth: PDF_KETERANGAN_COLUMN_WIDTH_MM } } : {}),
+      0: { halign: 'center', cellWidth: columnWidths[0] },
+      ...(showDate ? { 1: { cellWidth: columnWidths[1] } } : {}),
+      [tableColumns.indexOf('No Stt')]: { cellWidth: columnWidths[tableColumns.indexOf('No Stt')] },
+      [tableColumns.indexOf('Pengirim')]: { cellWidth: columnWidths[tableColumns.indexOf('Pengirim')] },
+      [tableColumns.indexOf('Penerima')]: { cellWidth: columnWidths[tableColumns.indexOf('Penerima')] },
+      [tableColumns.indexOf('C')]: { halign: 'center', cellWidth: columnWidths[tableColumns.indexOf('C')] },
+      [tableColumns.indexOf('Kg')]: { halign: 'center', cellWidth: columnWidths[tableColumns.indexOf('Kg')] },
+      [tableColumns.indexOf('Min')]: { halign: 'center', cellWidth: columnWidths[tableColumns.indexOf('Min')] },
+      [tableColumns.indexOf('Tarif')]: { halign: 'right', cellWidth: columnWidths[tableColumns.indexOf('Tarif')] },
+      [tableColumns.indexOf('Jumlah')]: { halign: 'right', cellWidth: columnWidths[tableColumns.indexOf('Jumlah')] },
+      ...(showKet ? { [tableColumns.indexOf('Ket')]: { cellWidth: columnWidths[tableColumns.indexOf('Ket')] } } : {}),
     },
   });
 

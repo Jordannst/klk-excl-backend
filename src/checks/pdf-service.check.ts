@@ -1,12 +1,17 @@
 import assert from 'assert';
 import { formatPdfDate, formatRupiah, safeText } from '../services/pdf/format';
-import { generateInvoicePdf, type InvoicePdfRequest } from '../services/pdf/invoicePdf';
+import {
+  calculateInvoicePdfColumnWidths,
+  generateInvoicePdf,
+  type InvoicePdfRequest,
+} from '../services/pdf/invoicePdf';
 import {
   PDF_BODY_FONT_SIZE,
   PDF_COLY_COLUMN_WIDTH_MM,
   PDF_COMPANY_FONT_SIZE,
   PDF_KETERANGAN_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_MM,
+  PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,
   PDF_PENGIRIM_COLUMN_WIDTH_MM,
   PDF_PENERIMA_COLUMN_WIDTH_MM,
   PDF_SMALL_FONT_SIZE,
@@ -16,7 +21,7 @@ import {
   PDF_TABLE_FONT_SIZE,
   PDF_TITLE_FONT_SIZE,
 } from '../services/pdf/pdfLayout';
-import { generateTransactionPdf } from '../services/pdf/transactionPdf';
+import { calculateTransactionPdfColumnWidths, generateTransactionPdf } from '../services/pdf/transactionPdf';
 
 assert.equal(formatRupiah(1250000), '1.250.000');
 assert.equal(formatPdfDate('2026-07-08'), '08 Jul 2026');
@@ -31,11 +36,28 @@ assert.ok(PDF_TABLE_DENSE_FONT_SIZE >= 9, 'dense PDF table font must stay readab
 assert.ok(PDF_TABLE_FONT_SIZE >= 10, 'standard PDF table font must stay readable');
 assert.ok(PDF_TABLE_HEADER_FONT_SIZE <= PDF_TABLE_DENSE_FONT_SIZE, 'PDF table header must be compact enough to avoid word breaks');
 assert.ok(PDF_TABLE_HEADER_CELL_PADDING_MM <= 1.2, 'PDF table header padding must leave room for short labels');
-assert.ok(PDF_NO_STT_COLUMN_WIDTH_MM >= 23, 'No Stt column must fit single-line tracking numbers');
+assert.ok(PDF_NO_STT_COLUMN_WIDTH_MM >= 34, 'No Stt column must fit 17-char tracking numbers at the dense font');
+assert.ok(PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM >= 38, 'No Stt column must fit 17-char tracking numbers at the normal font');
 assert.ok(PDF_PENGIRIM_COLUMN_WIDTH_MM >= 24, 'Pengirim column header must stay on one line');
 assert.ok(PDF_PENERIMA_COLUMN_WIDTH_MM >= 24, 'Penerima column header must stay on one line');
 assert.ok(PDF_COLY_COLUMN_WIDTH_MM >= 10, 'Coly column header must stay on one line');
 assert.ok(PDF_KETERANGAN_COLUMN_WIDTH_MM >= 16, 'Ket column must fit short numeric notes on one line');
+
+for (const showDate of [true, false]) {
+  for (const showKet of [true, false]) {
+    const widths = calculateInvoicePdfColumnWidths(showDate, showKet);
+    const totalWidth = Object.values(widths).reduce((sum, width) => sum + width, 0);
+    assert.equal(totalWidth, 191, 'invoice table must reach the narrow right margin on A4 portrait');
+  }
+}
+
+for (const showDate of [true, false]) {
+  for (const showKet of [true, false]) {
+    const widths = calculateTransactionPdfColumnWidths(showDate, showKet);
+    const totalWidth = Object.values(widths).reduce((sum, width) => sum + width, 0);
+    assert.equal(totalWidth, 278, 'transaction table must reach the narrow right margin on A4 landscape');
+  }
+}
 
 function makeTransactions(count: number): InvoicePdfRequest['transactions'] {
   return Array.from({ length: count }, (_, index) => ({
