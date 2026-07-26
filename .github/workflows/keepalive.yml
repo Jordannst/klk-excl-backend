@@ -1,0 +1,24 @@
+# Daily keep-alive ping: keeps the Supabase free-tier database counted as
+# active (it pauses after ~7 idle days) and warms the Azure app. A failed
+# ping turns this workflow red, which doubles as free downtime alerting.
+name: Keep-alive ping
+
+on:
+  schedule:
+    - cron: "0 1 * * *" # 09:00 WITA daily
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: |
+          code=$(curl -s -o health.json -w "%{http_code}" --max-time 90 --retry 3 --retry-delay 30 \
+            https://klkinvoice-hceagabrf6f8gjas.southeastasia-01.azurewebsites.net/api/health)
+          echo "HTTP $code"
+          cat health.json || true
+          if [ "$code" != "200" ]; then
+            echo "::error::Health check failed with HTTP $code"
+            exit 1
+          fi

@@ -32,9 +32,16 @@ app.use(
 // Apply general rate limiting to all API routes
 app.use('/api', apiRateLimiter);
 
-// Health check endpoint (public)
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check endpoint (public) — runs a tiny query so keep-alive pings
+// register as database activity on Supabase's free-tier inactivity check.
+app.get('/api/health', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok', db: 'up', timestamp: new Date().toISOString() });
+  } catch (error) {
+    console.error('Health check DB error:', error);
+    res.status(503).json({ status: 'degraded', db: 'down', timestamp: new Date().toISOString() });
+  }
 });
 
 // Auth routes (public)
