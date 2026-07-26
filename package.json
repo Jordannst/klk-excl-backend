@@ -11,7 +11,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
-    "test": "echo \"No tests yet\""
+    "test": "node dist/checks/pdf-service.check.js && node dist/checks/pdf-route.check.js",
+    "test:local": "ts-node src/checks/pdf-service.check.ts && ts-node src/checks/pdf-route.check.ts && ts-node src/checks/transaksi-search.check.ts"
   },
   "keywords": [],
   "author": "",
