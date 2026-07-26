@@ -99,6 +99,40 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/transaksi/search?q= - Find transactions by No STT fragment.
+// Registered before /:id so "search" is not parsed as an id.
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (q.length < 3) {
+      res.status(400).json({ error: 'Kata kunci minimal 3 karakter' });
+      return;
+    }
+
+    const results = await prisma.transaksi.findMany({
+      where: {
+        noResi: { contains: q, mode: 'insensitive' },
+        invoiceId: { not: null },
+      },
+      orderBy: { id: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        noResi: true,
+        tanggal: true,
+        pengirim: true,
+        penerima: true,
+        invoice: { select: { id: true, title: true, deletedAt: true } },
+      },
+    });
+
+    res.json({ results });
+  } catch (error) {
+    console.error('Error searching transaksi:', error);
+    res.status(500).json({ error: 'Failed to search transaksi' });
+  }
+});
+
 // GET /api/transaksi/:id - Get single transaction
 router.get('/:id', async (req: Request, res: Response) => {
   try {
