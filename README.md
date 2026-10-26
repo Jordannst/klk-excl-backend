@@ -21,6 +21,6 @@ Aplikasi ini merupakan REST API yang menangani pengelolaan data invoice dan tran
 - PostgreSQL dengan Prisma ORM
 - Supabase sebagai database hosting
 
-## Deployment
+## Deployment.
 
 Aplikasi ini di-deploy menggunakan Microsoft Azure.
