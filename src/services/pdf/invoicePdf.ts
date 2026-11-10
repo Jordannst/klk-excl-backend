@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { autoTable, type CellDef, type RowInput } from 'jspdf-autotable';
+import { autoTable, type CellDef, type RowInput, type UserOptions } from 'jspdf-autotable';
 import { formatPdfDate, formatRupiah, safeText } from './format';
 import {
   addPageIfNeeded,
@@ -21,7 +21,69 @@ import {
   PDF_TABLE_FONT_SIZE,
 } from './pdfLayout';
 
-const FOOTER_BLOCK_HEIGHT_MM = 100;
+// Vertical offsets (mm) of the closing block, measured from its first line.
+type FooterSpacing = {
+  transfer: number;
+  account: number;
+  closing: number;
+  regards: number;
+  signature: number;
+  signatureLine: number;
+  role: number;
+  name: number;
+  cc: number;
+  height: number;
+};
+
+type InvoiceSpacing = {
+  cellPadding: number;
+  denseCellPadding: number;
+  tableGap: number;
+  footer: FooterSpacing;
+};
+
+const NORMAL_SPACING: InvoiceSpacing = {
+  cellPadding: PDF_TABLE_CELL_PADDING_MM,
+  denseCellPadding: PDF_TABLE_DENSE_CELL_PADDING_MM,
+  tableGap: 10,
+  footer: {
+    transfer: 27,
+    account: 33,
+    closing: 43,
+    regards: 52,
+    signature: 56,
+    signatureLine: 75,
+    role: 81,
+    name: 87,
+    cc: 98,
+    height: 100,
+  },
+};
+
+// Tighter rows and closing block, used only when it keeps the closing block on
+// the same page as the table. Font sizes are untouched.
+const COMPACT_SPACING: InvoiceSpacing = {
+  cellPadding: 1.6,
+  denseCellPadding: 1.4,
+  tableGap: 6,
+  footer: {
+    transfer: 24,
+    account: 29.5,
+    closing: 37,
+    regards: 44,
+    signature: 46.5,
+    signatureLine: 64,
+    role: 69.5,
+    name: 75,
+    cc: 84,
+    height: 86,
+  },
+};
+
+// Rows held back to open the final page when the closing block cannot share a
+// page with the table any other way.
+const CARRY_ROWS = 3;
+const TABLE_START_Y_MM = 116;
 const A4_PORTRAIT_WIDTH_MM = 210;
 const INVOICE_TABLE_RIGHT_MARGIN_MM = 5;
 
@@ -185,8 +247,13 @@ function drawSignatureImage(doc: jsPDF, signature: { imageData: string } | null 
   }
 }
 
-function drawFooterBlock(doc: jsPDF, startY: number, payload: InvoicePdfRequest, handlingTotal: number): void {
-  const y = addPageIfNeeded(doc, startY, FOOTER_BLOCK_HEIGHT_MM);
+function drawFooterBlock(
+  doc: jsPDF,
+  y: number,
+  payload: InvoicePdfRequest,
+  handlingTotal: number,
+  spacing: FooterSpacing
+): void {
   const form = payload.formData;
   const biayaKirimDoc = Math.trunc(form.biayaKirimDoc || 0);
   const totalTagihan = handlingTotal + biayaKirimDoc;
@@ -204,31 +271,68 @@ function drawFooterBlock(doc: jsPDF, startY: number, payload: InvoicePdfRequest,
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(PDF_SMALL_FONT_SIZE);
-  doc.text('Jumlah tagihan bisa ditransfer melalui :', PDF_MARGIN_MM, y + 27);
+  doc.text('Jumlah tagihan bisa ditransfer melalui :', PDF_MARGIN_MM, y + spacing.transfer);
   doc.setFont('helvetica', 'bold');
-  doc.text('Rek mandiri, 1500010112710 a/n. Janti Feine Rundengan', PDF_MARGIN_MM, y + 33);
+  doc.text('Rek mandiri, 1500010112710 a/n. Janti Feine Rundengan', PDF_MARGIN_MM, y + spacing.account);
   doc.setFont('helvetica', 'normal');
-  doc.text('Demikian di sampaikan, Atas perhatian dan kerjasama yang baik, Kami ucapkan Terima Kasih', PDF_MARGIN_MM, y + 43, { maxWidth: 182 });
-  doc.text('Hormat Kami,', PDF_MARGIN_MM, y + 52);
+  doc.text('Demikian di sampaikan, Atas perhatian dan kerjasama yang baik, Kami ucapkan Terima Kasih', PDF_MARGIN_MM, y + spacing.closing, { maxWidth: 182 });
+  doc.text('Hormat Kami,', PDF_MARGIN_MM, y + spacing.regards);
 
-  drawSignatureImage(doc, payload.selectedSignatureKiri, 45, y + 56);
-  drawSignatureImage(doc, payload.selectedSignatureKanan, 129, y + 56);
-  doc.line(40, y + 75, 90, y + 75);
-  doc.line(124, y + 75, 174, y + 75);
-  doc.text('PT. KLK Mdc', 65, y + 81, { align: 'center' });
-  doc.text('Diketahui,', 149, y + 81, { align: 'center' });
+  drawSignatureImage(doc, payload.selectedSignatureKiri, 45, y + spacing.signature);
+  drawSignatureImage(doc, payload.selectedSignatureKanan, 129, y + spacing.signature);
+  doc.line(40, y + spacing.signatureLine, 90, y + spacing.signatureLine);
+  doc.line(124, y + spacing.signatureLine, 174, y + spacing.signatureLine);
+  doc.text('PT. KLK Mdc', 65, y + spacing.role, { align: 'center' });
+  doc.text('Diketahui,', 149, y + spacing.role, { align: 'center' });
   doc.setFont('helvetica', 'bold');
-  doc.text(safeText(form.penandatanganKiri), 65, y + 87, { align: 'center' });
-  doc.text(safeText(form.penandatanganKanan), 149, y + 87, { align: 'center' });
+  doc.text(safeText(form.penandatanganKiri), 65, y + spacing.name, { align: 'center' });
+  doc.text(safeText(form.penandatanganKanan), 149, y + spacing.name, { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.text('Cc. Klk mdc', PDF_MARGIN_MM, y + 98);
+  doc.text('Cc. Klk mdc', PDF_MARGIN_MM, y + spacing.cc);
 }
 
+export type InvoicePdfLayout = {
+  pdf: Buffer;
+  mode: 'normal' | 'compact' | 'carry';
+  pageCount: number;
+  bodyRowsOnLastPage: number;
+};
+
 export function generateInvoicePdf(payload: InvoicePdfRequest): Buffer {
+  return layoutInvoicePdf(payload).pdf;
+}
+
+export function layoutInvoicePdf(payload: InvoicePdfRequest): InvoicePdfLayout {
   if (!Array.isArray(payload.transactions) || payload.transactions.length === 0) {
     throw new Error('At least one transaction is required');
   }
 
+  const rowCount = payload.transactions.length;
+  const carryRows = Math.min(CARRY_ROWS, rowCount - 1);
+  const minRowsOnLastPage = Math.min(CARRY_ROWS, rowCount);
+  const attempts: Array<{ mode: InvoicePdfLayout['mode']; spacing: InvoiceSpacing; carryRows: number }> = [
+    { mode: 'normal', spacing: NORMAL_SPACING, carryRows: 0 },
+    { mode: 'compact', spacing: COMPACT_SPACING, carryRows: 0 },
+    ...(carryRows > 0 ? [{ mode: 'carry' as const, spacing: NORMAL_SPACING, carryRows }] : []),
+  ];
+
+  // Take the first layout whose last page shows enough table rows above the
+  // closing block, so the signatures never sit on a page of their own.
+  let layout: InvoicePdfLayout | undefined;
+  for (const attempt of attempts) {
+    layout = { ...renderInvoicePdf(payload, attempt.spacing, attempt.carryRows), mode: attempt.mode };
+    if (layout.bodyRowsOnLastPage >= minRowsOnLastPage) break;
+  }
+
+  return layout as InvoicePdfLayout;
+}
+
+function renderInvoicePdf(
+  payload: InvoicePdfRequest,
+  spacing: InvoiceSpacing,
+  carryRows: number
+): Omit<InvoicePdfLayout, 'mode'> {
+  const bodyRowsByPage = new Map<number, number>();
   const showDate = shouldShowDateColumn(payload.dateMode);
   const showKet = payload.showKeteranganColumn !== false;
   const columns = tableColumns(showDate, showKet);
@@ -241,15 +345,15 @@ export function generateInvoicePdf(payload: InvoicePdfRequest): Buffer {
   drawHeader(doc, payload.logoBase64);
   drawIntro(doc, payload);
 
-  autoTable(doc, {
-    startY: 116,
+  const body = tableBody(payload.transactions, payload.dateMode, showDate, showKet);
+  const foot: RowInput[] = [[
+    { content: 'TOTAL', colSpan: totalColSpan, styles: { halign: 'right', fontStyle: 'bold' } } as CellDef,
+    { content: `Rp ${formatRupiah(handlingTotal)}`, colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } } as CellDef,
+    ...(showKet ? [''] : []),
+  ]];
+
+  const tableOptions: UserOptions = {
     head: [columns],
-    body: tableBody(payload.transactions, payload.dateMode, showDate, showKet),
-    foot: [[
-      { content: 'TOTAL', colSpan: totalColSpan, styles: { halign: 'right', fontStyle: 'bold' } } as CellDef,
-      { content: `Rp ${formatRupiah(handlingTotal)}`, colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } } as CellDef,
-      ...(showKet ? [''] : []),
-    ]],
     showHead: 'everyPage',
     showFoot: 'lastPage',
     rowPageBreak: 'avoid',
@@ -263,7 +367,7 @@ export function generateInvoicePdf(payload: InvoicePdfRequest): Buffer {
     styles: {
       font: 'helvetica',
       fontSize: showKet ? PDF_TABLE_DENSE_FONT_SIZE : PDF_TABLE_FONT_SIZE,
-      cellPadding: showKet ? PDF_TABLE_DENSE_CELL_PADDING_MM : PDF_TABLE_CELL_PADDING_MM,
+      cellPadding: showKet ? spacing.denseCellPadding : spacing.cellPadding,
       lineColor: [0, 0, 0],
       lineWidth: 0.15,
       overflow: 'linebreak',
@@ -291,11 +395,34 @@ export function generateInvoicePdf(payload: InvoicePdfRequest): Buffer {
       [columns.indexOf('Jumlah')]: { halign: 'right', cellWidth: columnWidths[columns.indexOf('Jumlah')] },
       ...(showKet ? { [columns.indexOf('Ket')]: { cellWidth: columnWidths[columns.indexOf('Ket')] } } : {}),
     },
-  });
+    didDrawCell: (data) => {
+      if (data.section !== 'body' || data.column.index !== 0) return;
+      const page = doc.getCurrentPageInfo().pageNumber;
+      bodyRowsByPage.set(page, (bodyRowsByPage.get(page) ?? 0) + 1);
+    },
+  };
+
+  if (carryRows > 0) {
+    autoTable(doc, { ...tableOptions, startY: TABLE_START_Y_MM, body: body.slice(0, -carryRows) });
+    doc.addPage();
+    autoTable(doc, { ...tableOptions, startY: PDF_MARGIN_MM, body: body.slice(-carryRows), foot });
+  } else {
+    autoTable(doc, { ...tableOptions, startY: TABLE_START_Y_MM, body, foot });
+  }
 
   const table = (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable;
-  drawFooterBlock(doc, (table?.finalY ?? 116) + 10, payload, handlingTotal);
+  const footerY = addPageIfNeeded(
+    doc,
+    (table?.finalY ?? TABLE_START_Y_MM) + spacing.tableGap,
+    spacing.footer.height
+  );
+  drawFooterBlock(doc, footerY, payload, handlingTotal, spacing.footer);
   drawPageNumbers(doc);
 
-  return Buffer.from(doc.output('arraybuffer'));
+  const pageCount = doc.getNumberOfPages();
+  return {
+    pdf: Buffer.from(doc.output('arraybuffer')),
+    pageCount,
+    bodyRowsOnLastPage: bodyRowsByPage.get(pageCount) ?? 0,
+  };
 }

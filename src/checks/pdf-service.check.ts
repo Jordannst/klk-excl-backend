@@ -3,6 +3,7 @@ import { formatPdfDate, formatRupiah, safeText } from '../services/pdf/format';
 import {
   calculateInvoicePdfColumnWidths,
   generateInvoicePdf,
+  layoutInvoicePdf,
   type InvoicePdfRequest,
 } from '../services/pdf/invoicePdf';
 import {
@@ -114,6 +115,36 @@ const invalidSignaturePdf = generateInvoicePdf({
   logoBase64: 'not-a-valid-png',
 });
 assert.equal(invalidSignaturePdf.subarray(0, 4).toString('utf8'), '%PDF');
+
+// The closing block (totals, bank info, signatures) must never sit alone on the
+// last page: up to three table rows always share that page with it.
+for (const showKeteranganColumn of [true, false]) {
+  for (let count = 1; count <= 60; count += 1) {
+    const layout = layoutInvoicePdf({
+      ...invoicePayload,
+      showKeteranganColumn,
+      transactions: makeTransactions(count),
+    });
+    assert.ok(
+      layout.bodyRowsOnLastPage >= Math.min(3, count),
+      `closing block has too few rows above it (${count} rows, ket=${showKeteranganColumn})`
+    );
+  }
+}
+
+// An invoice whose closing block already fits keeps the normal spacing.
+assert.equal(layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(3) }).mode, 'normal');
+
+// A short invoice tightens its spacing to stay on one page.
+const compactLayout = layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(8) });
+assert.equal(compactLayout.mode, 'compact');
+assert.equal(compactLayout.pageCount, 1);
+
+// An invoice that cannot fit carries its last rows along with the closing block.
+const carryLayout = layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(18) });
+assert.equal(carryLayout.mode, 'carry');
+assert.equal(carryLayout.pageCount, 2);
+assert.equal(carryLayout.bodyRowsOnLastPage, 3);
 
 const transactionPdf = generateTransactionPdf({
   title: 'Perhitungan Pengiriman Barang QA',
