@@ -12,6 +12,7 @@ import {
   PDF_NO_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_MM,
   PDF_NO_STT_COLUMN_WIDTH_NORMAL_MM,
+  PDF_PENGIRIM_COLUMN_WIDTH_MM,
   PDF_SMALL_FONT_SIZE,
   PDF_TABLE_CELL_PADDING_MM,
   PDF_TABLE_DENSE_CELL_PADDING_MM,
@@ -117,8 +118,14 @@ export type InvoicePdfRequest = {
   selectedSignatureKiri?: { imageData: string } | null;
   selectedSignatureKanan?: { imageData: string } | null;
   logoBase64?: string;
+  columnWidths?: InvoicePdfColumnWidths;
   transactions: PdfTransaction[];
 };
+
+export type InvoicePdfColumnKey =
+  | 'tanggal' | 'noResi' | 'coly' | 'berat' | 'min' | 'tarif' | 'total' | 'keterangan';
+// Column width in mm; only the columns the user changed.
+export type InvoicePdfColumnWidths = Partial<Record<InvoicePdfColumnKey, number>>;
 
 function shouldShowDateColumn(dateMode: InvoicePdfRequest['dateMode']): boolean {
   return dateMode !== 'hidden-column';
@@ -180,9 +187,26 @@ function tableColumns(showDate: boolean, showKet: boolean): string[] {
   ];
 }
 
+const COLUMN_HEADERS: Record<InvoicePdfColumnKey, string> = {
+  tanggal: 'Hari/Tgl',
+  noResi: 'No Stt',
+  coly: 'Coly',
+  berat: 'Kg',
+  min: 'Min',
+  tarif: 'Tarif',
+  total: 'Jumlah',
+  keterangan: 'Ket',
+};
+const COLUMN_MIN_WIDTH_MM = 6;
+const COLUMN_MAX_WIDTH_MM = 60;
+
+// Source of truth for invoice column widths. frontend/lib/invoice-pdf-columns.ts
+// mirrors the defaults, limits and fallback rule for display only: change both.
+// `overrides` comes straight from the request body, so anything unusable is ignored.
 export function calculateInvoicePdfColumnWidths(
   showDate: boolean,
-  showKet: boolean
+  showKet: boolean,
+  overrides?: unknown
 ): Record<number, number> {
   const columns = tableColumns(showDate, showKet);
   // showKet also selects the dense font, which needs less width per character.
@@ -201,14 +225,31 @@ export function calculateInvoicePdfColumnWidths(
   if (showDate) widths[columns.indexOf('Hari/Tgl')] = 20;
   if (showKet) widths[columns.indexOf('Ket')] = PDF_KETERANGAN_COLUMN_WIDTH_MM;
 
-  const fixedWidth = Object.values(widths).reduce((sum, width) => sum + width, 0);
-  const textColumnWidth = (
-    A4_PORTRAIT_WIDTH_MM - PDF_MARGIN_MM - INVOICE_TABLE_RIGHT_MARGIN_MM - fixedWidth
-  ) / 2;
-  widths[columns.indexOf('Pengirim')] = textColumnWidth;
-  widths[columns.indexOf('Penerima')] = textColumnWidth;
+  const custom = { ...widths };
+  if (typeof overrides === 'object' && overrides !== null && !Array.isArray(overrides)) {
+    for (const [key, header] of Object.entries(COLUMN_HEADERS)) {
+      const index = columns.indexOf(header);
+      const value = (overrides as Record<string, unknown>)[key];
+      if (index < 0 || typeof value !== 'number' || !Number.isFinite(value)) continue;
+      custom[index] = Math.min(COLUMN_MAX_WIDTH_MM, Math.max(COLUMN_MIN_WIDTH_MM, Math.round(value * 2) / 2));
+    }
+  }
 
-  return widths;
+  // Pengirim and Penerima share whatever the fixed columns leave over.
+  const textWidth = (fixed: Record<number, number>) => (
+    A4_PORTRAIT_WIDTH_MM - PDF_MARGIN_MM - INVOICE_TABLE_RIGHT_MARGIN_MM
+    - Object.values(fixed).reduce((sum, width) => sum + width, 0)
+  ) / 2;
+  // Overrides that squeeze the text columns too far are dropped as a whole;
+  // the defaults always fit.
+  const fixed = textWidth(custom) < PDF_PENGIRIM_COLUMN_WIDTH_MM ? widths : custom;
+  const textColumnWidth = textWidth(fixed);
+
+  return {
+    ...fixed,
+    [columns.indexOf('Pengirim')]: textColumnWidth,
+    [columns.indexOf('Penerima')]: textColumnWidth,
+  };
 }
 
 function formatDateCell(row: PdfTransaction, dateMode: InvoicePdfRequest['dateMode']): string {
@@ -336,7 +377,7 @@ function renderInvoicePdf(
   const showDate = shouldShowDateColumn(payload.dateMode);
   const showKet = payload.showKeteranganColumn !== false;
   const columns = tableColumns(showDate, showKet);
-  const columnWidths = calculateInvoicePdfColumnWidths(showDate, showKet);
+  const columnWidths = calculateInvoicePdfColumnWidths(showDate, showKet, payload.columnWidths);
   const handlingTotal = payload.transactions.reduce((sum, row) => sum + Math.trunc(row.total || 0), 0);
   // TOTAL value spans Tarif+Jumlah so amounts like "Rp 12.345.000" stay on one line.
   const totalColSpan = columns.length - (showKet ? 3 : 2);

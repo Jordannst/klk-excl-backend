@@ -54,6 +54,41 @@ for (const showDate of [true, false]) {
   }
 }
 
+const sumWidths = (widths: Record<number, number>) =>
+  Object.values(widths).reduce((sum, width) => sum + width, 0);
+
+// Overrides apply and the text columns absorb the difference.
+const custom = calculateInvoicePdfColumnWidths(true, false, { noResi: 30, berat: 11 });
+assert.equal(custom[2], 30);
+assert.equal(custom[6], 11);
+assert.equal(custom[3], 33);
+assert.equal(custom[4], 33);
+assert.equal(sumWidths(custom), 191);
+
+// Finite numbers are clamped to 6..60 and rounded to 0.5 mm.
+const clamped = calculateInvoicePdfColumnWidths(false, false, { tarif: 500, noResi: -5 });
+assert.equal(clamped[7], 60);
+assert.equal(clamped[1], 6);
+assert.equal(calculateInvoicePdfColumnWidths(true, false, { berat: 9.26 })[6], 9.5);
+
+// Junk values, unknown keys, hidden columns and non-object input are ignored.
+const defaultWidths = calculateInvoicePdfColumnWidths(true, false);
+for (const junk of [
+  { berat: 'abc', min: Number.NaN, tarif: null, bogus: 40 },
+  { keterangan: 40 },
+  'abc',
+  null,
+  [30, 30],
+]) {
+  assert.deepEqual(calculateInvoicePdfColumnWidths(true, false, junk), defaultWidths);
+}
+
+// Overrides that squeeze Pengirim/Penerima below 24 mm fall back to defaults.
+assert.deepEqual(
+  calculateInvoicePdfColumnWidths(true, true, { berat: 20 }),
+  calculateInvoicePdfColumnWidths(true, true)
+);
+
 for (const showDate of [true, false]) {
   for (const showKet of [true, false]) {
     const widths = calculateTransactionPdfColumnWidths(showDate, showKet);
@@ -99,6 +134,9 @@ const invoicePayload: InvoicePdfRequest = {
 const invoicePdf = generateInvoicePdf(invoicePayload);
 assert.equal(invoicePdf.subarray(0, 4).toString('utf8'), '%PDF');
 assert.ok(invoicePdf.length > 1000);
+
+const customWidthPdf = generateInvoicePdf({ ...invoicePayload, columnWidths: { noResi: 32, berat: 9 } });
+assert.equal(customWidthPdf.subarray(0, 4).toString('utf8'), '%PDF');
 
 const blankDateModePdf = generateInvoicePdf({ ...invoicePayload, dateMode: 'blank-column' });
 assert.equal(blankDateModePdf.subarray(0, 4).toString('utf8'), '%PDF');
