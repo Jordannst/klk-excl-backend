@@ -24,6 +24,8 @@ import {
 
 // Vertical offsets (mm) of the closing block, measured from its first line.
 type FooterSpacing = {
+  // Left edge of the bank details; past the totals column they sit beside it.
+  bankX: number;
   transfer: number;
   account: number;
   closing: number;
@@ -37,6 +39,8 @@ type FooterSpacing = {
 };
 
 type InvoiceSpacing = {
+  // Addressee beside the date/number lines instead of below them.
+  tightIntro: boolean;
   cellPadding: number;
   denseCellPadding: number;
   tableGap: number;
@@ -44,10 +48,12 @@ type InvoiceSpacing = {
 };
 
 const NORMAL_SPACING: InvoiceSpacing = {
+  tightIntro: false,
   cellPadding: PDF_TABLE_CELL_PADDING_MM,
   denseCellPadding: PDF_TABLE_DENSE_CELL_PADDING_MM,
   tableGap: 10,
   footer: {
+    bankX: PDF_MARGIN_MM,
     transfer: 27,
     account: 33,
     closing: 43,
@@ -64,10 +70,12 @@ const NORMAL_SPACING: InvoiceSpacing = {
 // Tighter rows and closing block, used only when it keeps the closing block on
 // the same page as the table. Font sizes are untouched.
 const COMPACT_SPACING: InvoiceSpacing = {
+  tightIntro: false,
   cellPadding: 1.6,
   denseCellPadding: 1.4,
   tableGap: 6,
   footer: {
+    bankX: PDF_MARGIN_MM,
     transfer: 24,
     account: 29.5,
     closing: 37,
@@ -78,6 +86,28 @@ const COMPACT_SPACING: InvoiceSpacing = {
     name: 75,
     cc: 84,
     height: 86,
+  },
+};
+
+// The tight letter (letterLayout 'tight'): compact spacing plus the addressee
+// beside the date and the bank details beside the totals. Font sizes are untouched.
+const TIGHT_SPACING: InvoiceSpacing = {
+  tightIntro: true,
+  cellPadding: 1.6,
+  denseCellPadding: 1.4,
+  tableGap: 6,
+  footer: {
+    bankX: 105,
+    transfer: 0,
+    account: 6,
+    closing: 25,
+    regards: 32,
+    signature: 34.5,
+    signatureLine: 52,
+    role: 57.5,
+    name: 63,
+    cc: 72,
+    height: 74,
   },
 };
 
@@ -119,6 +149,9 @@ export type InvoicePdfRequest = {
   selectedSignatureKanan?: { imageData: string } | null;
   logoBase64?: string;
   columnWidths?: InvoicePdfColumnWidths;
+  // 'tight' puts the addressee beside the date and the bank details beside the
+  // totals so more rows fit on one page. Anything else means the standard letter.
+  letterLayout?: 'standard' | 'tight';
   transactions: PdfTransaction[];
 };
 
@@ -151,7 +184,36 @@ function drawHeader(doc: jsPDF, logoBase64?: string): void {
   doc.line(PDF_MARGIN_MM, 41, 210 - PDF_MARGIN_MM, 41);
 }
 
-function drawIntro(doc: jsPDF, payload: InvoicePdfRequest): void {
+const INTRO_TEXT =
+  'Terlampir Jasa Handling dari PT. Kemilau Lintas Khatulistiwa Manado Dikirim sesuai perhitungan Jasa handling di bawah ini:';
+const TIGHT_ADDRESSEE_X_MM = 120;
+
+// Tight letter intro. Returns the Y where the table starts.
+function drawTightIntro(doc: jsPDF, payload: InvoicePdfRequest): number {
+  const form = payload.formData;
+  const addresseeWidth = A4_PORTRAIT_WIDTH_MM - PDF_MARGIN_MM - TIGHT_ADDRESSEE_X_MM;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(PDF_BODY_FONT_SIZE);
+  doc.text(safeText(form.tanggalSurat), PDF_MARGIN_MM, 49);
+  doc.text(`No. ${safeText(form.nomorInvoice)}`, PDF_MARGIN_MM, 55);
+
+  doc.text('Kepada Yth :', TIGHT_ADDRESSEE_X_MM, 49);
+  doc.setFont('helvetica', 'bold');
+  const nameLines: string[] = doc.splitTextToSize(safeText(form.namaPenerima), addresseeWidth);
+  doc.text(nameLines, TIGHT_ADDRESSEE_X_MM, 55);
+  doc.setFont('helvetica', 'normal');
+  // A long addressee name wraps and pushes everything below it down.
+  const locationY = 61 + (Math.max(nameLines.length, 1) - 1) * 5;
+  doc.text(`Di. ${safeText(form.lokasiPenerima)}`, TIGHT_ADDRESSEE_X_MM, locationY, { maxWidth: addresseeWidth });
+
+  const greetingY = locationY + 10;
+  doc.text('Dengan Hormat,', PDF_MARGIN_MM, greetingY);
+  doc.text(INTRO_TEXT, PDF_MARGIN_MM, greetingY + 6, { maxWidth: 182 });
+  return greetingY + 16;
+}
+
+// Standard letter intro. Returns the Y where the table starts.
+function drawIntro(doc: jsPDF, payload: InvoicePdfRequest): number {
   const form = payload.formData;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(PDF_BODY_FONT_SIZE);
@@ -163,12 +225,8 @@ function drawIntro(doc: jsPDF, payload: InvoicePdfRequest): void {
   doc.setFont('helvetica', 'normal');
   doc.text(`Di. ${safeText(form.lokasiPenerima)}`, PDF_MARGIN_MM, 84);
   doc.text('Dengan Hormat,', PDF_MARGIN_MM, 98);
-  doc.text(
-    'Terlampir Jasa Handling dari PT. Kemilau Lintas Khatulistiwa Manado Dikirim sesuai perhitungan Jasa handling di bawah ini:',
-    PDF_MARGIN_MM,
-    105,
-    { maxWidth: 182 }
-  );
+  doc.text(INTRO_TEXT, PDF_MARGIN_MM, 105, { maxWidth: 182 });
+  return TABLE_START_Y_MM;
 }
 
 function tableColumns(showDate: boolean, showKet: boolean): string[] {
@@ -222,7 +280,8 @@ export function calculateInvoicePdfColumnWidths(
     [columns.indexOf('Jumlah')]: 19,
   };
 
-  if (showDate) widths[columns.indexOf('Hari/Tgl')] = 20;
+  // Wide enough for "08 Nov 2026" on one line at the dense / normal table font.
+  if (showDate) widths[columns.indexOf('Hari/Tgl')] = showKet ? 20 : 22;
   if (showKet) widths[columns.indexOf('Ket')] = PDF_KETERANGAN_COLUMN_WIDTH_MM;
 
   const custom = { ...widths };
@@ -312,9 +371,18 @@ function drawFooterBlock(
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(PDF_SMALL_FONT_SIZE);
-  doc.text('Jumlah tagihan bisa ditransfer melalui :', PDF_MARGIN_MM, y + spacing.transfer);
+  // Beside the totals the account line is too long for one line, so break it
+  // at the holder name instead of wherever the width runs out.
+  const besideTotals = spacing.bankX > PDF_MARGIN_MM;
+  doc.text('Jumlah tagihan bisa ditransfer melalui :', spacing.bankX, y + spacing.transfer);
   doc.setFont('helvetica', 'bold');
-  doc.text('Rek mandiri, 1500010112710 a/n. Janti Feine Rundengan', PDF_MARGIN_MM, y + spacing.account);
+  doc.text(
+    besideTotals
+      ? ['Rek mandiri, 1500010112710', 'a/n. Janti Feine Rundengan']
+      : 'Rek mandiri, 1500010112710 a/n. Janti Feine Rundengan',
+    spacing.bankX,
+    y + spacing.account
+  );
   doc.setFont('helvetica', 'normal');
   doc.text('Demikian di sampaikan, Atas perhatian dan kerjasama yang baik, Kami ucapkan Terima Kasih', PDF_MARGIN_MM, y + spacing.closing, { maxWidth: 182 });
   doc.text('Hormat Kami,', PDF_MARGIN_MM, y + spacing.regards);
@@ -334,7 +402,7 @@ function drawFooterBlock(
 
 export type InvoicePdfLayout = {
   pdf: Buffer;
-  mode: 'normal' | 'compact' | 'carry';
+  mode: 'normal' | 'compact' | 'tight' | 'carry';
   pageCount: number;
   bodyRowsOnLastPage: number;
 };
@@ -351,10 +419,17 @@ export function layoutInvoicePdf(payload: InvoicePdfRequest): InvoicePdfLayout {
   const rowCount = payload.transactions.length;
   const carryRows = Math.min(CARRY_ROWS, rowCount - 1);
   const minRowsOnLastPage = Math.min(CARRY_ROWS, rowCount);
+  // The user picks the letter; within it the spacing is chosen automatically.
+  const tight = payload.letterLayout === 'tight';
+  const carrySpacing = tight ? TIGHT_SPACING : NORMAL_SPACING;
   const attempts: Array<{ mode: InvoicePdfLayout['mode']; spacing: InvoiceSpacing; carryRows: number }> = [
-    { mode: 'normal', spacing: NORMAL_SPACING, carryRows: 0 },
-    { mode: 'compact', spacing: COMPACT_SPACING, carryRows: 0 },
-    ...(carryRows > 0 ? [{ mode: 'carry' as const, spacing: NORMAL_SPACING, carryRows }] : []),
+    ...(tight
+      ? [{ mode: 'tight' as const, spacing: TIGHT_SPACING, carryRows: 0 }]
+      : [
+          { mode: 'normal' as const, spacing: NORMAL_SPACING, carryRows: 0 },
+          { mode: 'compact' as const, spacing: COMPACT_SPACING, carryRows: 0 },
+        ]),
+    ...(carryRows > 0 ? [{ mode: 'carry' as const, spacing: carrySpacing, carryRows }] : []),
   ];
 
   // Take the first layout whose last page shows enough table rows above the
@@ -384,7 +459,8 @@ function renderInvoicePdf(
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   drawHeader(doc, payload.logoBase64);
-  drawIntro(doc, payload);
+  const tableStartY = spacing.tightIntro ? drawTightIntro(doc, payload) : drawIntro(doc, payload);
+  const cellPadding = showKet ? spacing.denseCellPadding : spacing.cellPadding;
 
   const body = tableBody(payload.transactions, payload.dateMode, showDate, showKet);
   const foot: RowInput[] = [[
@@ -408,7 +484,7 @@ function renderInvoicePdf(
     styles: {
       font: 'helvetica',
       fontSize: showKet ? PDF_TABLE_DENSE_FONT_SIZE : PDF_TABLE_FONT_SIZE,
-      cellPadding: showKet ? spacing.denseCellPadding : spacing.cellPadding,
+      cellPadding,
       lineColor: [0, 0, 0],
       lineWidth: 0.15,
       overflow: 'linebreak',
@@ -425,7 +501,15 @@ function renderInvoicePdf(
     footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
     columnStyles: {
       0: { halign: 'center', cellWidth: columnWidths[0] },
-      ...(showDate ? { 1: { cellWidth: columnWidths[1] } } : {}),
+      // Narrow side padding keeps wide month names ("Nov", "Sep") on one line.
+      ...(showDate
+        ? {
+            1: {
+              cellWidth: columnWidths[1],
+              cellPadding: { top: cellPadding, bottom: cellPadding, left: 0.8, right: 0.8 },
+            },
+          }
+        : {}),
       [columns.indexOf('No Stt')]: { cellWidth: columnWidths[columns.indexOf('No Stt')] },
       [columns.indexOf('Pengirim')]: { cellWidth: columnWidths[columns.indexOf('Pengirim')] },
       [columns.indexOf('Penerima')]: { cellWidth: columnWidths[columns.indexOf('Penerima')] },
@@ -444,17 +528,17 @@ function renderInvoicePdf(
   };
 
   if (carryRows > 0) {
-    autoTable(doc, { ...tableOptions, startY: TABLE_START_Y_MM, body: body.slice(0, -carryRows) });
+    autoTable(doc, { ...tableOptions, startY: tableStartY, body: body.slice(0, -carryRows) });
     doc.addPage();
     autoTable(doc, { ...tableOptions, startY: PDF_MARGIN_MM, body: body.slice(-carryRows), foot });
   } else {
-    autoTable(doc, { ...tableOptions, startY: TABLE_START_Y_MM, body, foot });
+    autoTable(doc, { ...tableOptions, startY: tableStartY, body, foot });
   }
 
   const table = (doc as jsPDF & { lastAutoTable?: { finalY?: number } }).lastAutoTable;
   const footerY = addPageIfNeeded(
     doc,
-    (table?.finalY ?? TABLE_START_Y_MM) + spacing.tableGap,
+    (table?.finalY ?? tableStartY) + spacing.tableGap,
     spacing.footer.height
   );
   drawFooterBlock(doc, footerY, payload, handlingTotal, spacing.footer);

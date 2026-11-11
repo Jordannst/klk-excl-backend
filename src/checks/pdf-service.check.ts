@@ -61,8 +61,8 @@ const sumWidths = (widths: Record<number, number>) =>
 const custom = calculateInvoicePdfColumnWidths(true, false, { noResi: 30, berat: 11 });
 assert.equal(custom[2], 30);
 assert.equal(custom[6], 11);
-assert.equal(custom[3], 33);
-assert.equal(custom[4], 33);
+assert.equal(custom[3], 32);
+assert.equal(custom[4], 32);
 assert.equal(sumWidths(custom), 191);
 
 // Finite numbers are clamped to 6..60 and rounded to 0.5 mm.
@@ -183,6 +183,55 @@ const carryLayout = layoutInvoicePdf({ ...invoicePayload, transactions: makeTran
 assert.equal(carryLayout.mode, 'carry');
 assert.equal(carryLayout.pageCount, 2);
 assert.equal(carryLayout.bodyRowsOnLastPage, 3);
+
+// The tight letter (addressee beside the date, bank details beside the totals)
+// is chosen per invoice and then used whatever the row count.
+const tightPayload: InvoicePdfRequest = { ...invoicePayload, letterLayout: 'tight' };
+const tightShort = layoutInvoicePdf({ ...tightPayload, transactions: makeTransactions(3) });
+assert.equal(tightShort.mode, 'tight');
+assert.equal(tightShort.pageCount, 1);
+
+// It keeps a medium invoice on one page where the standard letter needs two.
+const tightMedium = layoutInvoicePdf({ ...tightPayload, transactions: makeTransactions(12) });
+assert.equal(tightMedium.mode, 'tight');
+assert.equal(tightMedium.pageCount, 1);
+assert.equal(layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(12) }).pageCount, 2);
+
+// The closing block never sits alone in the tight letter either.
+for (const showKeteranganColumn of [true, false]) {
+  for (let count = 1; count <= 60; count += 1) {
+    const layout = layoutInvoicePdf({
+      ...tightPayload,
+      showKeteranganColumn,
+      transactions: makeTransactions(count),
+    });
+    assert.ok(
+      layout.bodyRowsOnLastPage >= Math.min(3, count),
+      `tight letter: closing block has too few rows above it (${count} rows, ket=${showKeteranganColumn})`
+    );
+  }
+}
+
+// An unknown layout value falls back to the standard letter.
+assert.equal(
+  layoutInvoicePdf({ ...invoicePayload, letterLayout: 'bogus' as never, transactions: makeTransactions(12) }).mode,
+  'carry'
+);
+
+// Wide month names must not wrap the date column and inflate row heights.
+for (const showKeteranganColumn of [true, false]) {
+  for (let count = 1; count <= 40; count += 1) {
+    const july = makeTransactions(count);
+    const november = july.map((row) => ({ ...row, tanggal: '2026-11-08' }));
+    const julyLayout = layoutInvoicePdf({ ...invoicePayload, showKeteranganColumn, transactions: july });
+    const novemberLayout = layoutInvoicePdf({ ...invoicePayload, showKeteranganColumn, transactions: november });
+    assert.deepEqual(
+      [novemberLayout.pageCount, novemberLayout.bodyRowsOnLastPage],
+      [julyLayout.pageCount, julyLayout.bodyRowsOnLastPage],
+      `date column wraps for November (${count} rows, ket=${showKeteranganColumn})`
+    );
+  }
+}
 
 const transactionPdf = generateTransactionPdf({
   title: 'Perhitungan Pengiriman Barang QA',
