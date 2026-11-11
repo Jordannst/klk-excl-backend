@@ -457,7 +457,8 @@ function renderInvoicePdf(
   // TOTAL value spans Tarif+Jumlah so amounts like "Rp 12.345.000" stay on one line.
   const totalColSpan = columns.length - (showKet ? 3 : 2);
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  // Compressed: the editor preview downloads this file again on every edit.
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
   drawHeader(doc, payload.logoBase64);
   const tableStartY = spacing.tightIntro ? drawTightIntro(doc, payload) : drawIntro(doc, payload);
   const cellPadding = showKet ? spacing.denseCellPadding : spacing.cellPadding;

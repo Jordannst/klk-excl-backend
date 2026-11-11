@@ -134,6 +134,9 @@ const invoicePayload: InvoicePdfRequest = {
 const invoicePdf = generateInvoicePdf(invoicePayload);
 assert.equal(invoicePdf.subarray(0, 4).toString('utf8'), '%PDF');
 assert.ok(invoicePdf.length > 1000);
+// The editor preview downloads this file on every edit, so it stays compressed:
+// 90 rows are about 240 KB uncompressed.
+assert.ok(invoicePdf.length < 60_000, `90-row invoice PDF is ${invoicePdf.length} bytes`);
 
 const customWidthPdf = generateInvoicePdf({ ...invoicePayload, columnWidths: { noResi: 32, berat: 9 } });
 assert.equal(customWidthPdf.subarray(0, 4).toString('utf8'), '%PDF');
