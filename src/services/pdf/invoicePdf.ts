@@ -435,20 +435,32 @@ export function layoutInvoicePdf(payload: InvoicePdfRequest): InvoicePdfLayout {
 
   // Take the first layout whose last page shows enough table rows above the
   // closing block, so the signatures never sit on a page of their own.
-  let layout: InvoicePdfLayout | undefined;
+  //
+  // The attempts are only measured: no logo, no signatures, no PDF written.
+  // Images sit at fixed places and move nothing, and parsing them is nearly all
+  // of a render, so one request must not pay for them once per attempt.
+  const measured: InvoicePdfRequest = {
+    ...payload,
+    logoBase64: undefined,
+    selectedSignatureKiri: null,
+    selectedSignatureKanan: null,
+  };
+  let chosen = attempts[0];
   for (const attempt of attempts) {
-    layout = { ...renderInvoicePdf(payload, attempt.spacing, attempt.carryRows), mode: attempt.mode };
-    if (layout.bodyRowsOnLastPage >= minRowsOnLastPage) break;
+    chosen = attempt;
+    const { bodyRowsOnLastPage } = renderInvoicePdf(measured, attempt.spacing, attempt.carryRows);
+    if (bodyRowsOnLastPage >= minRowsOnLastPage) break;
   }
 
-  return layout as InvoicePdfLayout;
+  const { doc, ...counts } = renderInvoicePdf(payload, chosen.spacing, chosen.carryRows);
+  return { pdf: Buffer.from(doc.output('arraybuffer')), mode: chosen.mode, ...counts };
 }
 
 function renderInvoicePdf(
   payload: InvoicePdfRequest,
   spacing: InvoiceSpacing,
   carryRows: number
-): Omit<InvoicePdfLayout, 'mode'> {
+): { doc: jsPDF; pageCount: number; bodyRowsOnLastPage: number } {
   const bodyRowsByPage = new Map<number, number>();
   const showDate = shouldShowDateColumn(payload.dateMode);
   const showKet = payload.showKeteranganColumn !== false;
@@ -548,7 +560,7 @@ function renderInvoicePdf(
 
   const pageCount = doc.getNumberOfPages();
   return {
-    pdf: Buffer.from(doc.output('arraybuffer')),
+    doc,
     pageCount,
     bodyRowsOnLastPage: bodyRowsByPage.get(pageCount) ?? 0,
   };
