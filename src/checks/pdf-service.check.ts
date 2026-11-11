@@ -188,18 +188,28 @@ assert.equal(carryLayout.mode, 'carry');
 assert.equal(carryLayout.pageCount, 2);
 assert.equal(carryLayout.bodyRowsOnLastPage, 3);
 
-// Layouts are compared without images and only the chosen one is drawn with
-// them, so a request's logo and signatures are parsed once, not once per
-// attempt. Images must not change the pagination either.
+// A request's logo and signatures are parsed once, not once per layout
+// attempt, and the table is laid out once per attempt and never again for the
+// final file. Images must not change the pagination either.
 const onePixelPng =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-const jsPdfApi = jsPDF.API as unknown as { addImage: (...args: unknown[]) => unknown };
+const jsPdfApi = jsPDF.API as unknown as {
+  addImage: (...args: unknown[]) => unknown;
+  events: [string, () => void][];
+};
 const originalAddImage = jsPdfApi.addImage;
 let addImageCalls = 0;
+// One jsPDF document is created per layout pass.
+let layoutPasses = 0;
 jsPdfApi.addImage = function countAddImage(this: unknown, ...args: unknown[]) {
   addImageCalls += 1;
   return originalAddImage.apply(this, args);
 };
+jsPdfApi.events.push(['initialized', () => { layoutPasses += 1; }]);
+layoutInvoicePdf({ ...invoicePayload, logoBase64: onePixelPng, transactions: makeTransactions(3) });
+assert.equal(layoutPasses, 1, `an invoice that fits at once was laid out ${layoutPasses} times`);
+layoutPasses = 0;
+addImageCalls = 0;
 const carryLayoutWithImages = layoutInvoicePdf({
   ...invoicePayload,
   logoBase64: onePixelPng,
@@ -208,7 +218,9 @@ const carryLayoutWithImages = layoutInvoicePdf({
   transactions: makeTransactions(18),
 });
 jsPdfApi.addImage = originalAddImage;
+jsPdfApi.events.pop();
 assert.equal(carryLayoutWithImages.mode, 'carry');
+assert.equal(layoutPasses, 3, `three attempts were laid out ${layoutPasses} times`);
 assert.equal(addImageCalls, 3, `logo and two signatures were drawn ${addImageCalls} times in total`);
 assert.equal(carryLayoutWithImages.pageCount, carryLayout.pageCount);
 assert.equal(carryLayoutWithImages.bodyRowsOnLastPage, carryLayout.bodyRowsOnLastPage);

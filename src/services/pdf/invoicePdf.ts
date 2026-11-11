@@ -164,15 +164,17 @@ function shouldShowDateColumn(dateMode: InvoicePdfRequest['dateMode']): boolean 
   return dateMode !== 'hidden-column';
 }
 
-function drawHeader(doc: jsPDF, logoBase64?: string): void {
-  if (logoBase64) {
-    try {
-      doc.addImage(logoBase64, 'PNG', PDF_MARGIN_MM, 11, 35, 18);
-    } catch {
-      // Invalid logo image should not block PDF generation.
-    }
-  }
+function drawLogo(doc: jsPDF, logoBase64?: string): void {
+  if (!logoBase64) return;
 
+  try {
+    doc.addImage(logoBase64, 'PNG', PDF_MARGIN_MM, 11, 35, 18);
+  } catch {
+    // Invalid logo image should not block PDF generation.
+  }
+}
+
+function drawHeader(doc: jsPDF): void {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(PDF_COMPANY_FONT_SIZE);
   doc.text('PT. Kemilau Lintas Khatulistiwa', 105, 17, { align: 'center' });
@@ -388,8 +390,6 @@ function drawFooterBlock(
   doc.text('Demikian di sampaikan, Atas perhatian dan kerjasama yang baik, Kami ucapkan Terima Kasih', PDF_MARGIN_MM, y + spacing.closing, { maxWidth: 182 });
   doc.text('Hormat Kami,', PDF_MARGIN_MM, y + spacing.regards);
 
-  drawSignatureImage(doc, payload.selectedSignatureKiri, 45, y + spacing.signature);
-  drawSignatureImage(doc, payload.selectedSignatureKanan, 129, y + spacing.signature);
   doc.line(40, y + spacing.signatureLine, 90, y + spacing.signatureLine);
   doc.line(124, y + spacing.signatureLine, 174, y + spacing.signatureLine);
   doc.text('PT. KLK Mdc', 65, y + spacing.role, { align: 'center' });
@@ -436,31 +436,33 @@ export function layoutInvoicePdf(payload: InvoicePdfRequest): InvoicePdfLayout {
   // Take the first layout whose last page shows enough table rows above the
   // closing block, so the signatures never sit on a page of their own.
   //
-  // The attempts are only measured: no logo, no signatures, no PDF written.
-  // Images sit at fixed places and move nothing, and parsing them is nearly all
-  // of a render, so one request must not pay for them once per attempt.
-  const measured: InvoicePdfRequest = {
-    ...payload,
-    logoBase64: undefined,
-    selectedSignatureKiri: null,
-    selectedSignatureKanan: null,
-  };
-  let chosen = attempts[0];
-  for (const attempt of attempts) {
-    chosen = attempt;
-    const { bodyRowsOnLastPage } = renderInvoicePdf(measured, attempt.spacing, attempt.carryRows);
-    if (bodyRowsOnLastPage >= minRowsOnLastPage) break;
+  // An attempt lays the document out without the logo, the signatures or a
+  // written PDF. Those are added to the chosen document only: images sit at
+  // fixed places and move nothing, and parsing them is most of the work, so a
+  // request pays for them once and its table is never laid out a second time.
+  let mode = attempts[0].mode;
+  let chosen = renderInvoicePdf(payload, attempts[0].spacing, attempts[0].carryRows);
+  for (const attempt of attempts.slice(1)) {
+    if (chosen.bodyRowsOnLastPage >= minRowsOnLastPage) break;
+    mode = attempt.mode;
+    chosen = renderInvoicePdf(payload, attempt.spacing, attempt.carryRows);
   }
 
-  const { doc, ...counts } = renderInvoicePdf(payload, chosen.spacing, chosen.carryRows);
-  return { pdf: Buffer.from(doc.output('arraybuffer')), mode: chosen.mode, ...counts };
+  const { doc, signatureY, pageCount, bodyRowsOnLastPage } = chosen;
+  doc.setPage(1);
+  drawLogo(doc, payload.logoBase64);
+  doc.setPage(pageCount);
+  drawSignatureImage(doc, payload.selectedSignatureKiri, 45, signatureY);
+  drawSignatureImage(doc, payload.selectedSignatureKanan, 129, signatureY);
+
+  return { pdf: Buffer.from(doc.output('arraybuffer')), mode, pageCount, bodyRowsOnLastPage };
 }
 
 function renderInvoicePdf(
   payload: InvoicePdfRequest,
   spacing: InvoiceSpacing,
   carryRows: number
-): { doc: jsPDF; pageCount: number; bodyRowsOnLastPage: number } {
+): { doc: jsPDF; pageCount: number; bodyRowsOnLastPage: number; signatureY: number } {
   const bodyRowsByPage = new Map<number, number>();
   const showDate = shouldShowDateColumn(payload.dateMode);
   const showKet = payload.showKeteranganColumn !== false;
@@ -472,7 +474,7 @@ function renderInvoicePdf(
 
   // Compressed: the editor preview downloads this file again on every edit.
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-  drawHeader(doc, payload.logoBase64);
+  drawHeader(doc);
   const tableStartY = spacing.tightIntro ? drawTightIntro(doc, payload) : drawIntro(doc, payload);
   const cellPadding = showKet ? spacing.denseCellPadding : spacing.cellPadding;
 
@@ -561,6 +563,7 @@ function renderInvoicePdf(
   const pageCount = doc.getNumberOfPages();
   return {
     doc,
+    signatureY: footerY + spacing.footer.signature,
     pageCount,
     bodyRowsOnLastPage: bodyRowsByPage.get(pageCount) ?? 0,
   };
