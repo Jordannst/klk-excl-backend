@@ -202,11 +202,12 @@ function drawTightIntro(doc: jsPDF, payload: InvoicePdfRequest): number {
   const nameLines: string[] = doc.splitTextToSize(safeText(form.namaPenerima), addresseeWidth);
   doc.text(nameLines, TIGHT_ADDRESSEE_X_MM, 55);
   doc.setFont('helvetica', 'normal');
-  // A long addressee name wraps and pushes everything below it down.
+  // A long addressee name or location wraps and pushes everything below it down.
   const locationY = 61 + (Math.max(nameLines.length, 1) - 1) * 5;
-  doc.text(`Di. ${safeText(form.lokasiPenerima)}`, TIGHT_ADDRESSEE_X_MM, locationY, { maxWidth: addresseeWidth });
+  const locationLines: string[] = doc.splitTextToSize(`Di. ${safeText(form.lokasiPenerima)}`, addresseeWidth);
+  doc.text(locationLines, TIGHT_ADDRESSEE_X_MM, locationY);
 
-  const greetingY = locationY + 10;
+  const greetingY = locationY + 10 + (locationLines.length - 1) * 5;
   doc.text('Dengan Hormat,', PDF_MARGIN_MM, greetingY);
   doc.text(INTRO_TEXT, PDF_MARGIN_MM, greetingY + 6, { maxWidth: 182 });
   return greetingY + 16;

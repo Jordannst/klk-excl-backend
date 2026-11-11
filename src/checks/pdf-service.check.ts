@@ -200,6 +200,18 @@ assert.equal(tightMedium.mode, 'tight');
 assert.equal(tightMedium.pageCount, 1);
 assert.equal(layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(12) }).pageCount, 2);
 
+// A long addressee location wraps beside the date and pushes the table down
+// instead of running into it: the same 12 rows no longer fit on one page.
+const tightLongLocation = layoutInvoicePdf({
+  ...tightPayload,
+  formData: {
+    ...tightPayload.formData,
+    lokasiPenerima: 'Kawasan Industri Kema Blok A Nomor 12, Minahasa Utara, Sulawesi Utara '.repeat(6),
+  },
+  transactions: makeTransactions(12),
+});
+assert.equal(tightLongLocation.pageCount, 2);
+
 // The closing block never sits alone in the tight letter either.
 for (const showKeteranganColumn of [true, false]) {
   for (let count = 1; count <= 60; count += 1) {
