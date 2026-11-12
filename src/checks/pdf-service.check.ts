@@ -1,8 +1,10 @@
 import assert from 'assert';
+import { jsPDF } from 'jspdf';
 import { formatPdfDate, formatRupiah, safeText } from '../services/pdf/format';
 import {
   calculateInvoicePdfColumnWidths,
   generateInvoicePdf,
+  layoutInvoicePdf,
   type InvoicePdfRequest,
 } from '../services/pdf/invoicePdf';
 import {
@@ -53,6 +55,41 @@ for (const showDate of [true, false]) {
   }
 }
 
+const sumWidths = (widths: Record<number, number>) =>
+  Object.values(widths).reduce((sum, width) => sum + width, 0);
+
+// Overrides apply and the text columns absorb the difference.
+const custom = calculateInvoicePdfColumnWidths(true, false, { noResi: 30, berat: 11 });
+assert.equal(custom[2], 30);
+assert.equal(custom[6], 11);
+assert.equal(custom[3], 32);
+assert.equal(custom[4], 32);
+assert.equal(sumWidths(custom), 191);
+
+// Finite numbers are clamped to 6..60 and rounded to 0.5 mm.
+const clamped = calculateInvoicePdfColumnWidths(false, false, { tarif: 500, noResi: -5 });
+assert.equal(clamped[7], 60);
+assert.equal(clamped[1], 6);
+assert.equal(calculateInvoicePdfColumnWidths(true, false, { berat: 9.26 })[6], 9.5);
+
+// Junk values, unknown keys, hidden columns and non-object input are ignored.
+const defaultWidths = calculateInvoicePdfColumnWidths(true, false);
+for (const junk of [
+  { berat: 'abc', min: Number.NaN, tarif: null, bogus: 40 },
+  { keterangan: 40 },
+  'abc',
+  null,
+  [30, 30],
+]) {
+  assert.deepEqual(calculateInvoicePdfColumnWidths(true, false, junk), defaultWidths);
+}
+
+// Overrides that squeeze Pengirim/Penerima below 24 mm fall back to defaults.
+assert.deepEqual(
+  calculateInvoicePdfColumnWidths(true, true, { berat: 20 }),
+  calculateInvoicePdfColumnWidths(true, true)
+);
+
 for (const showDate of [true, false]) {
   for (const showKet of [true, false]) {
     const widths = calculateTransactionPdfColumnWidths(showDate, showKet);
@@ -98,6 +135,12 @@ const invoicePayload: InvoicePdfRequest = {
 const invoicePdf = generateInvoicePdf(invoicePayload);
 assert.equal(invoicePdf.subarray(0, 4).toString('utf8'), '%PDF');
 assert.ok(invoicePdf.length > 1000);
+// The editor preview downloads this file on every edit, so it stays compressed:
+// 90 rows are about 240 KB uncompressed.
+assert.ok(invoicePdf.length < 60_000, `90-row invoice PDF is ${invoicePdf.length} bytes`);
+
+const customWidthPdf = generateInvoicePdf({ ...invoicePayload, columnWidths: { noResi: 32, berat: 9 } });
+assert.equal(customWidthPdf.subarray(0, 4).toString('utf8'), '%PDF');
 
 const blankDateModePdf = generateInvoicePdf({ ...invoicePayload, dateMode: 'blank-column' });
 assert.equal(blankDateModePdf.subarray(0, 4).toString('utf8'), '%PDF');
@@ -114,6 +157,134 @@ const invalidSignaturePdf = generateInvoicePdf({
   logoBase64: 'not-a-valid-png',
 });
 assert.equal(invalidSignaturePdf.subarray(0, 4).toString('utf8'), '%PDF');
+
+// The closing block (totals, bank info, signatures) must never sit alone on the
+// last page: up to three table rows always share that page with it.
+for (const showKeteranganColumn of [true, false]) {
+  for (let count = 1; count <= 60; count += 1) {
+    const layout = layoutInvoicePdf({
+      ...invoicePayload,
+      showKeteranganColumn,
+      transactions: makeTransactions(count),
+    });
+    assert.ok(
+      layout.bodyRowsOnLastPage >= Math.min(3, count),
+      `closing block has too few rows above it (${count} rows, ket=${showKeteranganColumn})`
+    );
+  }
+}
+
+// An invoice whose closing block already fits keeps the normal spacing.
+assert.equal(layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(3) }).mode, 'normal');
+
+// A short invoice tightens its spacing to stay on one page.
+const compactLayout = layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(8) });
+assert.equal(compactLayout.mode, 'compact');
+assert.equal(compactLayout.pageCount, 1);
+
+// An invoice that cannot fit carries its last rows along with the closing block.
+const carryLayout = layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(18) });
+assert.equal(carryLayout.mode, 'carry');
+assert.equal(carryLayout.pageCount, 2);
+assert.equal(carryLayout.bodyRowsOnLastPage, 3);
+
+// A request's logo and signatures are parsed once, not once per layout
+// attempt, and the table is laid out once per attempt and never again for the
+// final file. Images must not change the pagination either.
+const onePixelPng =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const jsPdfApi = jsPDF.API as unknown as {
+  addImage: (...args: unknown[]) => unknown;
+  events: [string, () => void][];
+};
+const originalAddImage = jsPdfApi.addImage;
+let addImageCalls = 0;
+// One jsPDF document is created per layout pass.
+let layoutPasses = 0;
+jsPdfApi.addImage = function countAddImage(this: unknown, ...args: unknown[]) {
+  addImageCalls += 1;
+  return originalAddImage.apply(this, args);
+};
+jsPdfApi.events.push(['initialized', () => { layoutPasses += 1; }]);
+layoutInvoicePdf({ ...invoicePayload, logoBase64: onePixelPng, transactions: makeTransactions(3) });
+assert.equal(layoutPasses, 1, `an invoice that fits at once was laid out ${layoutPasses} times`);
+layoutPasses = 0;
+addImageCalls = 0;
+const carryLayoutWithImages = layoutInvoicePdf({
+  ...invoicePayload,
+  logoBase64: onePixelPng,
+  selectedSignatureKiri: { imageData: onePixelPng },
+  selectedSignatureKanan: { imageData: onePixelPng },
+  transactions: makeTransactions(18),
+});
+jsPdfApi.addImage = originalAddImage;
+jsPdfApi.events.pop();
+assert.equal(carryLayoutWithImages.mode, 'carry');
+assert.equal(layoutPasses, 3, `three attempts were laid out ${layoutPasses} times`);
+assert.equal(addImageCalls, 3, `logo and two signatures were drawn ${addImageCalls} times in total`);
+assert.equal(carryLayoutWithImages.pageCount, carryLayout.pageCount);
+assert.equal(carryLayoutWithImages.bodyRowsOnLastPage, carryLayout.bodyRowsOnLastPage);
+
+// The tight letter (addressee beside the date, bank details beside the totals)
+// is chosen per invoice and then used whatever the row count.
+const tightPayload: InvoicePdfRequest = { ...invoicePayload, letterLayout: 'tight' };
+const tightShort = layoutInvoicePdf({ ...tightPayload, transactions: makeTransactions(3) });
+assert.equal(tightShort.mode, 'tight');
+assert.equal(tightShort.pageCount, 1);
+
+// It keeps a medium invoice on one page where the standard letter needs two.
+const tightMedium = layoutInvoicePdf({ ...tightPayload, transactions: makeTransactions(12) });
+assert.equal(tightMedium.mode, 'tight');
+assert.equal(tightMedium.pageCount, 1);
+assert.equal(layoutInvoicePdf({ ...invoicePayload, transactions: makeTransactions(12) }).pageCount, 2);
+
+// A long addressee location wraps beside the date and pushes the table down
+// instead of running into it: the same 12 rows no longer fit on one page.
+const tightLongLocation = layoutInvoicePdf({
+  ...tightPayload,
+  formData: {
+    ...tightPayload.formData,
+    lokasiPenerima: 'Kawasan Industri Kema Blok A Nomor 12, Minahasa Utara, Sulawesi Utara '.repeat(6),
+  },
+  transactions: makeTransactions(12),
+});
+assert.equal(tightLongLocation.pageCount, 2);
+
+// The closing block never sits alone in the tight letter either.
+for (const showKeteranganColumn of [true, false]) {
+  for (let count = 1; count <= 60; count += 1) {
+    const layout = layoutInvoicePdf({
+      ...tightPayload,
+      showKeteranganColumn,
+      transactions: makeTransactions(count),
+    });
+    assert.ok(
+      layout.bodyRowsOnLastPage >= Math.min(3, count),
+      `tight letter: closing block has too few rows above it (${count} rows, ket=${showKeteranganColumn})`
+    );
+  }
+}
+
+// An unknown layout value falls back to the standard letter.
+assert.equal(
+  layoutInvoicePdf({ ...invoicePayload, letterLayout: 'bogus' as never, transactions: makeTransactions(12) }).mode,
+  'carry'
+);
+
+// Wide month names must not wrap the date column and inflate row heights.
+for (const showKeteranganColumn of [true, false]) {
+  for (let count = 1; count <= 40; count += 1) {
+    const july = makeTransactions(count);
+    const november = july.map((row) => ({ ...row, tanggal: '2026-11-08' }));
+    const julyLayout = layoutInvoicePdf({ ...invoicePayload, showKeteranganColumn, transactions: july });
+    const novemberLayout = layoutInvoicePdf({ ...invoicePayload, showKeteranganColumn, transactions: november });
+    assert.deepEqual(
+      [novemberLayout.pageCount, novemberLayout.bodyRowsOnLastPage],
+      [julyLayout.pageCount, julyLayout.bodyRowsOnLastPage],
+      `date column wraps for November (${count} rows, ket=${showKeteranganColumn})`
+    );
+  }
+}
 
 const transactionPdf = generateTransactionPdf({
   title: 'Perhitungan Pengiriman Barang QA',
