@@ -98,7 +98,7 @@ async function main() {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        invoiceId: active.id, noResi: resiTrash, pengirim: 'CHK', penerima: 'CHK',
+        invoiceId: active.id, noResi: resiTrash, tanggal: '2026-01-01', pengirim: 'CHK', penerima: 'CHK',
         coly: 1, berat: 1, min: 1, tarif: 23, total: 23,
       }),
     });

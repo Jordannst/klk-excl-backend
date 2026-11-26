@@ -1,5 +1,3 @@
-BEGIN;
-
 -- Some databases already have these fields from Prisma db push.
 DO $$
 BEGIN
@@ -45,5 +43,3 @@ BEGIN
         RAISE EXCEPTION 'Column % differs from the expected Prisma schema', incompatible_column;
     END IF;
 END $$;
-
-COMMIT;
