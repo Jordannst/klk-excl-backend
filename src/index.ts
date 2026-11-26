@@ -11,6 +11,7 @@ import signatureRoutes from './routes/signature';
 import pdfRoutes from './routes/pdf';
 import { authMiddleware } from './middleware/auth.middleware';
 import { apiRateLimiter } from './middleware/rateLimit';
+import { releaseCommit } from './release';
 
 const app = express();
 
@@ -35,12 +36,13 @@ app.use('/api', apiRateLimiter);
 // Health check endpoint (public) — runs a tiny query so keep-alive pings
 // register as database activity on Supabase's free-tier inactivity check.
 app.get('/api/health', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: 'ok', db: 'up', timestamp: new Date().toISOString() });
+    res.json({ status: 'ok', db: 'up', commit: releaseCommit, timestamp: new Date().toISOString() });
   } catch (error) {
     console.error('Health check DB error:', error);
-    res.status(503).json({ status: 'degraded', db: 'down', timestamp: new Date().toISOString() });
+    res.status(503).json({ status: 'degraded', db: 'down', commit: releaseCommit, timestamp: new Date().toISOString() });
   }
 });
 

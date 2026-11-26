@@ -62,7 +62,7 @@ jobs:
 
       - name: Package sources for the Azure build
         run: |
-          git archive --format=zip --output="$RUNNER_TEMP/klk-webapp.zip" HEAD -- \
+          git archive --format=zip --output="$RUNNER_TEMP/klk-webapp.zip" "$GITHUB_SHA" -- \
             src prisma prisma.config.ts package.json package-lock.json tsconfig.json
 
       - name: Build and start the release ZIP as Azure does
@@ -83,8 +83,21 @@ jobs:
           npm start &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
-          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 5 \
-            "http://127.0.0.1:$PORT/api/health" | jq -e '.status == "ok" and .db == "up"'
+          verifier="$GITHUB_WORKSPACE/.github/scripts/verify-release.mjs"
+          health_url="http://127.0.0.1:$PORT/api/health"
+          node "$verifier" "$health_url" "$GITHUB_SHA" 60
+
+          # A healthy process serving a different commit must exhaust the deadline.
+          other_commit=0000000000000000000000000000000000000000
+          if node "$verifier" "$health_url" "$other_commit" 3 > mismatch.log 2>&1; then
+            echo "The release check accepted the wrong commit" >&2
+            exit 1
+          else
+            result=$?
+          fi
+          cat mismatch.log
+          test "$result" -eq 1
+          grep -Fq "Timed out waiting for $other_commit. Last result: HTTP 200 commit=$GITHUB_SHA db=up" mismatch.log
 
       - name: Upload artifact for deployment job
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
@@ -107,6 +120,16 @@ jobs:
       contents: read #This is required for actions/checkout
 
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.x'
+
       - name: Download artifact from build job
         uses: actions/download-artifact@v8
         with:
@@ -128,9 +151,6 @@ jobs:
           package: klk-webapp.zip
 
       - name: Verify database health after deployment
-        shell: bash
         env:
           WEBAPP_URL: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-        run: |
-          curl --fail --silent --show-error --retry 3 --retry-connrefused --retry-delay 30 --max-time 90 \
-            "${WEBAPP_URL%/}/api/health" | jq -e '.status == "ok" and .db == "up"'
+        run: node .github/scripts/verify-release.mjs "${WEBAPP_URL%/}/api/health" "$GITHUB_SHA" 300
