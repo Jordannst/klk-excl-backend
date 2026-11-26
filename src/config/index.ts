@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 
 // Load environment variables
-dotenv.config();
+if (process.env.NODE_ENV !== 'test') dotenv.config();
 
 // Validate required environment variables
 const requiredEnvVars = ['DATABASE_URL', 'JWT_SECRET'];

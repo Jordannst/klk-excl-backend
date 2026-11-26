@@ -4,7 +4,7 @@
  * Run: npx ts-node tests/noResiDuplicate.test.ts
  */
 import assert from 'node:assert';
-import { hasDuplicateNoResiInRequest } from '../src/routes/invoice';
+import { hasDuplicateNoResiInRequest } from '../src/lib/no-resi';
 
 const cases: Array<{ name: string; values: string[]; expected: boolean }> = [
   {

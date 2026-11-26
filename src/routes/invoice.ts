@@ -1,4 +1,4 @@
-import { Prisma, InvoiceDateMode as PrismaInvoiceDateMode } from '@prisma/client';
+import { Prisma, InvoiceDateMode as PrismaInvoiceDateMode } from '../generated/prisma/client';
 import { Router, Request, Response } from 'express';
 import {
   fromPrismaInvoiceDateMode,
@@ -7,6 +7,8 @@ import {
   toPrismaInvoiceDateMode,
 } from '../lib/invoice-date-mode';
 import { prisma } from '../lib/prisma';
+import { hasDuplicateNoResiInRequest } from '../lib/no-resi';
+export { hasDuplicateNoResiInRequest };
 
 const router = Router();
 
@@ -68,10 +70,6 @@ function parseMinValue(value: unknown): number {
   }
 
   return parseRequiredNonNegativeInt(value, 'min');
-}
-
-export function hasDuplicateNoResiInRequest(noResiList: string[]): boolean {
-  return new Set(noResiList).size !== noResiList.length;
 }
 
 function parseOptionalBoolean(value: unknown, fieldName: string): boolean | undefined {
