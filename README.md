@@ -44,3 +44,5 @@ Untuk membuat akun admin pertama di database yang dituju, sediakan `ADMIN_PASSWO
 Aplikasi ini di-deploy menggunakan Microsoft Azure. Saat GitHub Actions membuat ZIP sumber, `git archive` menyisipkan SHA commit yang kemudian dikompilasi oleh Oryx. Endpoint `GET /api/health` mengembalikan SHA tersebut di field `commit`. Build lokal langsung dari checkout mengembalikan `commit: null`.
 
 Setelah deploy, workflow menunggu paling lama lima menit hingga health mengembalikan HTTP 200, `status=ok`, `db=up`, dan `commit` yang sama dengan SHA run GitHub. Jika batas waktu tercapai, langkah verifikasi gagal.
+
+Saat `workflow_dispatch` atau `Re-run all jobs` memasang kembali commit yang sedang aktif, container lama dapat meluluskan pemeriksaan karena SHA-nya sama. Untuk memastikan container baru sudah berjalan pada deploy ulang tersebut, cocokkan log startup container di Azure dengan waktu deployment.

@@ -10,9 +10,10 @@ if (!URL.canParse(healthUrl) || !fullSha.test(expectedCommit) ||
 }
 
 const deadline = performance.now() + timeoutSeconds * 1000;
+const minRetryBudgetMs = 1000;
 let lastResult = 'no response';
 
-while (performance.now() < deadline) {
+do {
   const remaining = Math.max(1, Math.ceil(deadline - performance.now()));
   try {
     const response = await fetch(healthUrl, {
@@ -21,12 +22,12 @@ while (performance.now() < deadline) {
       signal: AbortSignal.timeout(Math.min(remaining, 5000)),
     });
     lastResult = `HTTP ${response.status}`;
-    if (response.status === 200) {
-      const health = await response.json();
-      const commit = fullSha.test(health?.commit) ? health.commit : 'unknown';
-      const db = health?.db === 'up' ? 'up' : 'unavailable';
+    if (response.status === 200 || response.status === 503) {
+      const health = await response.json().catch(() => null);
+      const commit = typeof health?.commit === 'string' && fullSha.test(health.commit) ? health.commit : 'unknown';
+      const db = ['up', 'down'].includes(health?.db) ? health.db : 'unavailable';
       lastResult += ` commit=${commit} db=${db}`;
-      if (commit === expectedCommit && db === 'up' && health.status === 'ok') {
+      if (response.status === 200 && commit === expectedCommit && db === 'up' && health.status === 'ok') {
         console.log(`Release verified: ${lastResult}`);
         process.exit(0);
       }
@@ -34,12 +35,13 @@ while (performance.now() < deadline) {
       await response.body?.cancel();
     }
   } catch (error) {
-    lastResult = `Health request failed: ${error.name}`;
+    const detail = error.cause?.code ?? error.cause?.message ?? error.message;
+    lastResult = `Health request failed: ${error.name}: ${detail}`;
   }
 
   console.log(`Waiting for ${expectedCommit}: ${lastResult}`);
   await sleep(Math.min(10000, Math.max(0, deadline - performance.now())));
-}
+} while (deadline - performance.now() >= minRetryBudgetMs);
 
 console.error(`Timed out waiting for ${expectedCommit}. Last result: ${lastResult}`);
 process.exitCode = 1;
