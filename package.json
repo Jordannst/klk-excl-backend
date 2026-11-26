@@ -5,42 +5,60 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/index.ts",
+    "predev": "prisma generate",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
-    "seed": "ts-node prisma/seed.ts",
+    "seed": "prisma db seed",
+    "preseed": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
-    "test": "node dist/checks/pdf-service.check.js && node dist/checks/pdf-route.check.js",
-    "test:local": "ts-node src/checks/pdf-service.check.ts && ts-node src/checks/pdf-route.check.ts && ts-node src/checks/transaksi-search.check.ts"
+    "test": "node dist/checks/pdf-service.check.js && node dist/checks/pdf-route.check.js && ts-node tests/noResiDuplicate.test.ts",
+    "test:integration": "node dist/checks/transaksi-search.check.js",
+    "test:local": "prisma generate && ts-node src/checks/pdf-service.check.ts && ts-node src/checks/pdf-route.check.ts && ts-node tests/noResiDuplicate.test.ts && ts-node src/checks/transaksi-search.check.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": "24.x"
+  },
+  "overrides": {
+    "@prisma/config@7.10.1": {
+      "effect": "3.22.1"
+    }
+  },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.5",
+    "jsonwebtoken": "^9.0.3",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^25.0.0",
-    "bcrypt": "^6.0.0",
-    "cookie-parser": "^1.4.7",
-    "cors": "^2.8.5",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "express-rate-limit": "^8.2.1",
-    "jsonwebtoken": "^9.0.3",
-    "jspdf": "^4.2.1",
-    "jspdf-autotable": "^5.0.8",
-    "postgres": "^3.4.7",
-    "prisma": "^5.22.0",
+    "@types/node": "^24.0.0",
+    "prisma": "7.10.1",
+    "nodemon": "^3.1.11",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },
-  "devDependencies": {
-    "nodemon": "^3.1.11",
-    "ts-node": "^10.9.2"
+  "allowScripts": {
+    "@prisma/engines@7.10.1": true,
+    "prisma@7.10.1": true,
+    "bcrypt@6.0.0": true,
+    "core-js": false
   }
 }

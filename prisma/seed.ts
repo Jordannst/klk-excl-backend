@@ -1,11 +1,8 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../src/lib/prisma';
 import * as bcrypt from 'bcrypt';
-
-const prisma = new PrismaClient();
 
 async function main() {
   const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
 
   console.log('🌱 Seeding database...');
 
@@ -19,6 +16,9 @@ async function main() {
     return;
   }
 
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (!adminPassword) throw new Error('Set ADMIN_PASSWORD before creating the admin user');
+
   // Hash password
   const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
@@ -30,9 +30,7 @@ async function main() {
     },
   });
 
-  console.log(`✅ Admin user created:`);
-  console.log(`   Username: ${user.username}`);
-  console.log(`   Password: ${adminPassword} (please change this!)`);
+  console.log(`✅ Admin user "${user.username}" created.`);
 }
 
 main()
