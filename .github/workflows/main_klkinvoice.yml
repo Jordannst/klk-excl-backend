@@ -56,25 +56,35 @@ jobs:
         run: |
           npm test
           npm prune --omit=dev --omit=optional --ignore-scripts
-          npm run test:integration
-
-      - name: Package the application with its generated Prisma client
-        run: |
           test -f dist/generated/prisma/client.js
           test ! -d node_modules/prisma
-          zip -q -r -y "$RUNNER_TEMP/klk-webapp.zip" dist node_modules prisma src prisma.config.ts package.json package-lock.json tsconfig.json
+          npm run test:integration
 
-      - name: Smoke-test the release ZIP
+      - name: Package sources for the Azure build
         run: |
-          mkdir "$RUNNER_TEMP/klk-smoke"
-          unzip -q "$RUNNER_TEMP/klk-webapp.zip" -d "$RUNNER_TEMP/klk-smoke"
-          cd "$RUNNER_TEMP/klk-smoke"
+          git archive --format=zip --output="$RUNNER_TEMP/klk-webapp.zip" HEAD -- \
+            src prisma prisma.config.ts package.json package-lock.json tsconfig.json
+
+      - name: Build and start the release ZIP as Azure does
+        shell: bash
+        env:
+          NODE_ENV: production
+          PORT: 4100
+        run: |
+          cd "$(mktemp -d "$RUNNER_TEMP/klk-smoke.XXXXXX")"
+          unzip -q "$RUNNER_TEMP/klk-webapp.zip"
+          test ! -e node_modules
+          test ! -e dist
+          test ! -e src/generated/prisma
+          npm install
+          npm run build
           node dist/checks/postgres-connection.check.js
           node dist/checks/pdf-service.check.js
-          PORT=4100 NODE_ENV=production node dist/index.js &
+          npm start &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
-          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 5 http://127.0.0.1:4100/api/health
+          curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 5 \
+            "http://127.0.0.1:$PORT/api/health" | jq -e '.status == "ok" and .db == "up"'
 
       - name: Upload artifact for deployment job
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
